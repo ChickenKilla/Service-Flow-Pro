@@ -1,0 +1,52 @@
+{
+  "entities": {
+    "customer": {
+      "title": "Customer",
+      "description": "Customer contact and job details",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Full name" },
+        "address": { "type": "string", "description": "Street address" },
+        "phone": { "type": "string", "description": "Phone number" },
+        "windowCount": { "type": "number", "description": "Number of windows" },
+        "aglCount": { "type": "number", "description": "AGL count" },
+        "notes": { "type": "string", "description": "Special instructions" },
+        "appointmentTime": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string" },
+        "calendarEventId": { "type": "string" },
+        "mileageAttributed": { "type": "number", "description": "Mileage cost to reach this job" },
+        "completed": { "type": "boolean" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "address", "phone", "createdBy"]
+    },
+    "dailyRoute": {
+      "title": "Daily Route",
+      "description": "Daily route tracking for mileage",
+      "type": "object",
+      "properties": {
+        "date": { "type": "string" },
+        "startOdometer": { "type": "number" },
+        "endOdometer": { "type": "number" },
+        "currentOdometer": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "completed"] },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["date", "startOdometer", "status", "createdBy"]
+    }
+  },
+  "firestore": {
+    "/customers/{customerId}": {
+      "schema": "customer",
+      "description": "Collection of customer jobs"
+    },
+    "/routes/{routeId}": {
+      "schema": "dailyRoute",
+      "description": "Collection of daily routes"
+    }
+  }
+}

@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidCustomer(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.address is string && data.address.size() > 0 && data.address.size() <= 500 &&
+             data.phone is string && data.phone.size() <= 50 &&
+             data.createdBy == request.auth.uid;
+    }
+
+    match /customers/{customerId} {
+      allow read, list: if isSignedIn() && resource.data.createdBy == request.auth.uid;
+      allow create: if isSignedIn() && isValidCustomer(request.resource.data) &&
+                      request.resource.data.createdAt == request.time;
+      allow update: if isSignedIn() && isOwner(resource.data.createdBy) && 
+                      isValidCustomer(request.resource.data) &&
+                      request.resource.data.updatedAt == request.time &&
+                      request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if isSignedIn() && isOwner(resource.data.createdBy);
+    }
+
+    function isValidRoute(data) {
+      return data.date is string &&
+             data.startOdometer is number &&
+             data.status in ['active', 'completed'] &&
+             data.createdBy == request.auth.uid;
+    }
+
+    match /routes/{routeId} {
+      allow read, list: if isSignedIn() && resource.data.createdBy == request.auth.uid;
+      allow create: if isSignedIn() && isValidRoute(request.resource.data) &&
+                      request.resource.data.createdAt == request.time;
+      allow update: if isSignedIn() && isOwner(resource.data.createdBy) && 
+                      isValidRoute(request.resource.data) &&
+                      request.resource.data.updatedAt == request.time &&
+                      request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if isSignedIn() && isOwner(resource.data.createdBy);
+    }
+  }
+}

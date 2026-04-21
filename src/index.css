@@ -1,0 +1,40 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", serif;
+  
+  --color-bg: #0a0a0a;
+  --color-surface: #141414;
+  --color-border: #2a2a2a;
+  --color-accent: #c5a059;
+  --color-text-primary: #e0e0e0;
+  --color-text-secondary: #888888;
+}
+
+@layer base {
+  body {
+    @apply bg-bg text-text-primary font-sans antialiased;
+  }
+}
+
+.luxury-card {
+  @apply bg-surface border border-border shadow-2xl rounded-sm;
+}
+
+.label-caps {
+  @apply text-[10px] uppercase tracking-[0.15em] font-semibold text-text-secondary;
+}
+
+.input-luxury {
+  @apply w-full bg-surface border border-border rounded-sm px-4 py-3 text-white outline-none focus:border-accent transition-all placeholder:text-text-secondary/30;
+}
+
+.btn-luxury-primary {
+  @apply bg-accent text-black font-bold py-4 px-6 rounded-sm uppercase tracking-[0.2em] text-[11px] active:scale-95 transition-all;
+}
+
+.btn-luxury-outline {
+  @apply bg-transparent border border-border text-text-primary font-bold py-4 px-6 rounded-sm uppercase tracking-[0.2em] text-[11px] active:scale-95 transition-all hover:bg-white/5;
+}
