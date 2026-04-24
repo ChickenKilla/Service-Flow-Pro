@@ -17,6 +17,7 @@ service cloud.firestore {
       return data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
              data.address is string && data.address.size() > 0 && data.address.size() <= 500 &&
              data.phone is string && data.phone.size() <= 50 &&
+             (!('assignedTo' in data) || data.assignedTo is string) &&
              data.createdBy == request.auth.uid;
     }
 
@@ -45,6 +46,34 @@ service cloud.firestore {
       allow update: if isSignedIn() && isOwner(resource.data.createdBy) && 
                       isValidRoute(request.resource.data) &&
                       request.resource.data.updatedAt == request.time &&
+                      request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if isSignedIn() && isOwner(resource.data.createdBy);
+    }
+    function isValidEmployee(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.createdBy == request.auth.uid;
+    }
+
+    match /employees/{employeeId} {
+      allow read, list: if isSignedIn() && resource.data.createdBy == request.auth.uid;
+      allow create: if isSignedIn() && isValidEmployee(request.resource.data) &&
+                      request.resource.data.createdAt == request.time;
+      allow update: if isSignedIn() && isOwner(resource.data.createdBy) && 
+                      isValidEmployee(request.resource.data) &&
+                      request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if isSignedIn() && isOwner(resource.data.createdBy);
+    }
+    function isValidEmployee(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.createdBy == request.auth.uid;
+    }
+
+    match /employees/{employeeId} {
+      allow read, list: if isSignedIn() && resource.data.createdBy == request.auth.uid;
+      allow create: if isSignedIn() && isValidEmployee(request.resource.data) &&
+                      request.resource.data.createdAt == request.time;
+      allow update: if isSignedIn() && isOwner(resource.data.createdBy) && 
+                      isValidEmployee(request.resource.data) &&
                       request.resource.data.createdBy == resource.data.createdBy;
       allow delete: if isSignedIn() && isOwner(resource.data.createdBy);
     }

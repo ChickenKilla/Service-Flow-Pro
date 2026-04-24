@@ -12,6 +12,7 @@
         "aglCount": { "type": "number", "description": "AGL count" },
         "notes": { "type": "string", "description": "Special instructions" },
         "appointmentTime": { "type": "string", "format": "date-time" },
+        "assignedTo": { "type": "string", "description": "Employee assigned to the job" },
         "createdBy": { "type": "string" },
         "calendarEventId": { "type": "string" },
         "mileageAttributed": { "type": "number", "description": "Mileage cost to reach this job" },
@@ -37,6 +38,17 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["date", "startOdometer", "status", "createdBy"]
+    },
+    "employee": {
+      "title": "Employee",
+      "description": "Team member details for job assignment",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Employee Full Name" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "createdBy"]
     }
   },
   "firestore": {
@@ -47,6 +59,10 @@
     "/routes/{routeId}": {
       "schema": "dailyRoute",
       "description": "Collection of daily routes"
+    },
+    "/employees/{employeeId}": {
+      "schema": "employee",
+      "description": "Collection of team members"
     }
   }
 }

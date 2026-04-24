@@ -41,10 +41,27 @@ import {
   Printer,
   Trash2,
   Users,
-  Download
+  Download,
+  Sun,
+  Moon,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { format } from 'date-fns';
+import { 
+  format, 
+  startOfWeek, 
+  addDays, 
+  startOfMonth, 
+  endOfMonth, 
+  isSameMonth, 
+  isSameDay, 
+  addMonths, 
+  subMonths,
+  parseISO,
+  isAfter,
+  endOfWeek
+} from 'date-fns';
 import { auth, db, signInWithGoogle } from './firebase';
 
 interface ServiceLog {
@@ -74,6 +91,7 @@ interface Customer {
   aglCount: number;
   notes: string;
   appointmentTime: string;
+  assignedTo?: string;
   createdBy: string;
   calendarEventId?: string;
   calendarLink?: string;
@@ -88,6 +106,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [dailyRoutes, setDailyRoutes] = useState<DailyRoute[]>([]);
+  const [employees, setEmployees] = useState<{id: string, name: string, createdBy: string}[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -98,7 +117,7 @@ export default function App() {
   const [syncAttempt, setSyncAttempt] = useState(0);
   
   // Navigation & History State
-  const [currentRoute, setCurrentRoute] = useState<'dashboard' | 'history' | 'directory'>('dashboard');
+  const [currentRoute, setCurrentRoute] = useState<'dashboard' | 'history' | 'directory' | 'team' | 'help'>('dashboard');
   const [historySort, setHistorySort] = useState<'dateDesc' | 'dateAsc' | 'nameAsc'>('dateDesc');
   const [historyFilter, setHistoryFilter] = useState<'all' | 'active' | 'completed'>('all');
   const [historySearchQuery, setHistorySearchQuery] = useState('');
@@ -135,8 +154,26 @@ export default function App() {
     return saved ? JSON.parse(saved) : null;
   });
 
+  // Team Management State
+  const [newEmployeeName, setNewEmployeeName] = useState('');
+  const [isAddingEmployee, setIsAddingEmployee] = useState(false);
+
   // Offline/Online State
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  // Theme State
+  const [theme, setTheme] = useState<'dark' | 'light' | 'midnight' | 'forest'>(() => {
+    return (localStorage.getItem('apex_theme') as 'dark' | 'light' | 'midnight' | 'forest') || 'dark';
+  });
+
+  // Calendar Dashboard State
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('apex_theme', theme);
+  }, [theme]);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -146,11 +183,13 @@ export default function App() {
     windowCount: '' as number | string,
     aglCount: '' as number | string,
     notes: '',
+    assignedTo: 'Unassigned',
     apptDate: format(new Date(), 'yyyy-MM-dd'),
     apptHour: '',
     apptMinute: '',
     apptAmPm: 'AM' as 'AM' | 'PM',
   });
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -199,9 +238,21 @@ export default function App() {
         setDailyRoutes(docs);
       });
 
+      const qEmployees = query(
+        collection(db, 'employees'),
+        where('createdBy', '==', user.uid),
+        orderBy('createdAt', 'asc')
+      );
+
+      const unsubEmployees = onSnapshot(qEmployees, (snapshot) => {
+        const docs = snapshot.docs.map(d => ({ id: d.id, name: d.data().name, createdBy: d.data().createdBy }));
+        setEmployees(docs);
+      });
+
       return () => {
         unsubscribe();
         unsubRoutes();
+        unsubEmployees();
       };
     }
   }, [user]);
@@ -273,12 +324,14 @@ export default function App() {
       windowCount: '',
       aglCount: '',
       notes: '',
+      assignedTo: 'Unassigned',
       apptDate: format(new Date(), 'yyyy-MM-dd'),
       apptHour: '',
       apptMinute: '',
       apptAmPm: 'AM',
     });
     setEditingId(null);
+    setFormError(null);
   };
 
   const handleImportMaps = async () => {
@@ -356,6 +409,7 @@ export default function App() {
       windowCount: customer.windowCount,
       aglCount: customer.aglCount,
       notes: customer.notes,
+      assignedTo: customer.assignedTo || 'Unassigned',
       apptDate: format(d, 'yyyy-MM-dd'),
       apptHour: format(d, 'hh'),
       apptMinute: format(d, 'mm'),
@@ -413,6 +467,34 @@ export default function App() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    setFormError(null);
+
+    // Client-side Validation
+    const phoneDigits = formData.phone.replace(/[^0-9]/g, '');
+    if (phoneDigits.length < 10) {
+      setFormError('Phone number must have at least 10 digits.');
+      return;
+    }
+
+    if (!formData.apptDate) {
+      setFormError('Target Date is required.');
+      return;
+    }
+
+    const hour = parseInt(formData.apptHour, 10);
+    if (isNaN(hour) || hour < 1 || hour > 12) {
+      setFormError('Hour must be between 1 and 12.');
+      return;
+    }
+
+    if (formData.apptMinute) {
+      const min = parseInt(formData.apptMinute, 10);
+      if (isNaN(min) || min < 0 || min > 59) {
+        setFormError('Minute must be between 00 and 59.');
+        return;
+      }
+    }
+
     setSyncError(null);
     setIsSyncing(true);
     setSyncAttempt(0);
@@ -434,6 +516,7 @@ export default function App() {
         windowCount: Number(formData.windowCount) || 0,
         aglCount: Number(formData.aglCount) || 0,
         notes: formData.notes,
+        assignedTo: formData.assignedTo,
         appointmentTime: synthesizedAppointmentTime
       };
 
@@ -634,7 +717,33 @@ export default function App() {
     link.setAttribute("download", `apex_tax_mileage_${new Date().getFullYear()}.csv`);
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+  };
+
+  const handleAddEmployee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !newEmployeeName.trim()) return;
+    setIsAddingEmployee(true);
+    try {
+      await addDoc(collection(db, 'employees'), {
+        name: newEmployeeName.trim(),
+        createdBy: user.uid,
+        createdAt: serverTimestamp()
+      });
+      setNewEmployeeName('');
+    } catch (err) {
+      console.error("Failed to add employee:", err);
+    }
+    setIsAddingEmployee(false);
+  };
+
+  const handleDeleteEmployee = async (id: string, name: string) => {
+    if (window.confirm(`Are you sure you want to remove ${name} from your team?`)) {
+      try {
+        await deleteDoc(doc(db, 'employees', id));
+      } catch (err) {
+        console.error("Failed to delete employee:", err);
+      }
+    }
   };
 
   if (loading) {
@@ -684,8 +793,8 @@ export default function App() {
 
         <div className="print-content max-w-2xl mx-auto align-top">
           <h1 className="text-3xl font-bold mb-1 text-black">{printSingleCustomer.name}</h1>
-          <p className="text-lg text-gray-700 mb-8 border-b border-gray-300 pb-4 font-serif italic">
-            Scheduled: {format(new Date(printSingleCustomer.appointmentTime), 'EEEE, MMMM do, yyyy - h:mm a')}
+                        <p className="text-lg text-gray-700 mb-8 border-b border-gray-300 pb-4 font-serif italic">
+            Scheduled: {format(new Date(printSingleCustomer.appointmentTime), 'MMM dd, yyyy h:mm a')}
           </p>
           
           <div className="grid grid-cols-2 gap-8 mb-8 bg-gray-50 p-6 rounded border border-gray-200">
@@ -728,7 +837,7 @@ export default function App() {
                          <div className="flex justify-between items-center mb-1">
                             <span className="font-bold text-black text-base">{log.type}</span>
                             <span className="text-gray-500 font-medium text-sm bg-white px-2 py-1 rounded shadow-sm border border-gray-200">
-                              {format(new Date(log.date + 'T12:00:00'), 'MMM do, yyyy')}
+                              {format(new Date(log.date + 'T12:00:00'), 'MMM dd, yyyy')}
                             </span>
                          </div>
                          {log.notes && <p className="text-sm mt-3 text-gray-700 leading-relaxed bg-white p-3 rounded border border-gray-200">{log.notes}</p>}
@@ -881,6 +990,18 @@ export default function App() {
             >
               Directory
             </button>
+            <button 
+              onClick={() => setCurrentRoute('team')}
+              className={`label-caps transition-colors ${currentRoute === 'team' ? 'text-accent' : 'text-text-secondary hover:text-white'}`}
+            >
+              Team
+            </button>
+            <button 
+              onClick={() => setCurrentRoute('help')}
+              className={`label-caps transition-colors ${currentRoute === 'help' ? 'text-accent' : 'text-text-secondary hover:text-white'}`}
+            >
+              Training
+            </button>
           </div>
           {!googleTokens && (
             <button 
@@ -903,7 +1024,19 @@ export default function App() {
             <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'}`} />
             <span className="hidden sm:inline">{isOnline ? 'Online' : 'Offline Mode'}</span>
           </div>
-          <button onClick={() => auth.signOut()} className="text-text-secondary hover:text-white transition-colors">
+          
+          <select 
+            value={theme}
+            onChange={(e) => setTheme(e.target.value as any)}
+            className="bg-transparent border border-border text-text-secondary text-[10px] uppercase font-bold tracking-widest pl-2 pr-6 py-1.5 rounded-sm outline-none cursor-pointer hover:border-accent/40"
+          >
+            <option value="dark">Classic (Dark)</option>
+            <option value="light">Classic (Light)</option>
+            <option value="midnight">Modern Midnight</option>
+            <option value="forest">Modern Forest</option>
+          </select>
+
+          <button onClick={() => auth.signOut()} className="text-text-secondary hover:text-text-primary transition-colors">
             <LogOut className="w-5 h-5" />
           </button>
         </div>
@@ -952,285 +1085,218 @@ export default function App() {
                 >
                   <Users className="w-4 h-4" /> Directory
                 </button>
+                <button 
+                  onClick={() => { setCurrentRoute('team'); setIsSidebarOpen(false); }}
+                  className={`flex items-center gap-3 w-full text-left p-4 rounded-sm label-caps ${currentRoute === 'team' ? 'bg-bg border border-accent/20 text-accent' : 'text-text-secondary hover:bg-bg'}`}
+                >
+                  <UserIcon className="w-4 h-4" /> Team
+                </button>
+                <button 
+                  onClick={() => { setCurrentRoute('help'); setIsSidebarOpen(false); }}
+                  className={`flex items-center gap-3 w-full text-left p-4 rounded-sm label-caps ${currentRoute === 'help' ? 'bg-bg border border-accent/20 text-accent' : 'text-text-secondary hover:bg-bg'}`}
+                >
+                  <ClipboardList className="w-4 h-4" /> Training
+                </button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
 
-      <main className="flex-1 max-w-2xl w-full mx-auto p-8 pb-32">
-        {currentRoute === 'dashboard' ? (
-          <>
-            <div className="flex flex-col sm:flex-row items-center justify-between mb-8">
-              <div>
-                <h2 className="text-3xl font-serif text-white mb-2">Daily Directive</h2>
-                <div className="flex items-center gap-4">
-                  <p className="label-caps italic">{format(new Date(), 'EEEE, MMMM do')}</p>
-                  
-                  {activeRoute ? (
-                    <button 
-                      onClick={() => setShowRouteModal('end')}
-                      className="text-[10px] border border-red-900/50 bg-red-950/20 text-red-400 px-3 py-1 rounded-sm font-bold uppercase tracking-widest hover:bg-red-900/30 transition-colors animate-pulse"
-                    >
-                      End Route
-                    </button>
-                  ) : (
-                    <button 
-                      onClick={() => setShowRouteModal('start')}
-                      className="text-[10px] border border-emerald-900/50 bg-emerald-950/20 text-emerald-400 px-3 py-1 rounded-sm font-bold uppercase tracking-widest hover:bg-emerald-900/30 transition-colors"
-                    >
-                      Start Route
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="flex flex-col sm:flex-row w-full sm:w-auto items-center sm:items-start gap-4 mt-6 sm:mt-0">
-                <button 
-                  onClick={() => setPrintSelectOpen(true)}
-                  className="flex items-center justify-center gap-2 px-5 w-full sm:w-auto py-3 bg-transparent border border-border hover:border-accent/40 rounded-sm hover:-translate-y-1 transition-all text-sm font-bold text-text-secondary hover:text-white"
-                  title="Print Active Schedule"
-                >
-                  <Printer className="w-4 h-4 text-accent" />
-                  <span className="label-caps !text-xs tracking-widest mt-0.5">Print Day</span>
-                </button>
-                <button 
-                  onClick={handleOpenAddForm}
-                  className="w-14 h-14 bg-accent text-black rounded-full flex mx-auto sm:mx-0 items-center justify-center shadow-lg active:scale-95 transition-all flex-shrink-0"
-                  title="New Intake"
-                >
-                  <Plus className="w-8 h-8" />
-                </button>
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-10 border-b border-border">
-              <div className="flex items-center gap-6">
-                <button 
-                  onClick={() => setFilterView('active')}
-                  className={`label-caps pb-4 transition-all border-b-2 ${filterView === 'active' ? 'border-accent text-accent' : 'border-transparent hover:text-white'}`}
-                >
-                  Active Jobs
-                </button>
-                <button 
-                  onClick={() => setFilterView('completed')}
-                  className={`label-caps pb-4 transition-all border-b-2 ${filterView === 'completed' ? 'border-accent text-accent' : 'border-transparent hover:text-white'}`}
-                >
-                  Completed
-                </button>
-              </div>
-              
-              <div className="relative mb-4 sm:mb-0 w-full sm:max-w-xs">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary" />
-                <input 
-                  type="text"
-                  placeholder="Search jobs..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-surface border border-border rounded-sm pl-10 pr-4 py-2.5 text-white outline-none focus:border-accent transition-all text-sm placeholder:text-text-secondary/50"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-8">
-              {customers
-                .filter(c => searchQuery 
-                  ? (c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.address.toLowerCase().includes(searchQuery.toLowerCase()))
-                  : (filterView === 'active' ? !c.completed : c.completed)
-                ).length === 0 ? (
-                <div className="text-center py-24 bg-surface/30 rounded-sm border border-border border-dashed">
-                  <PlusCircle className="w-12 h-12 text-border mx-auto mb-4" />
-                  <p className="label-caps">No matches found</p>
-                  {filterView === 'active' && !searchQuery && (
-                    <button 
-                      onClick={handleOpenAddForm}
-                      className="mt-6 text-accent font-bold uppercase text-[11px] tracking-widest hover:underline"
-                    >
-                      Create First Intake
-                    </button>
-                  )}
-                </div>
-              ) : (
-                customers
-                  .filter(c => searchQuery 
-                    ? (c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.address.toLowerCase().includes(searchQuery.toLowerCase()))
-                    : (filterView === 'active' ? !c.completed : c.completed)
-                  )
-                  .map((customer) => (
-                  <motion.div 
-                    layout
-                    key={customer.id} 
-                    className={`luxury-card p-8 active:bg-white/[0.02] transition-colors relative ${customer.completed ? 'opacity-70' : ''}`}
-                  >
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h3 className="text-xl font-serif text-white tracking-wide mb-3">
-                      {customer.name}
-                    </h3>
-                    <div className="flex flex-wrap gap-6 text-text-secondary">
-                      <span className="flex items-center gap-2 label-caps">
-                        <Clock className="w-3.5 h-3.5 text-accent" />
-                        {format(new Date(customer.appointmentTime), 'h:mm a')}
-                      </span>
-                      <span className="flex items-center gap-2 label-caps">
-                        <Phone className="w-3.5 h-3.5 text-accent" />
-                        {customer.phone}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={() => setHistoryModalCustomerId(customer.id)}
-                      className="p-3 bg-bg border border-border rounded-sm text-text-secondary hover:text-accent hover:border-accent/40 active:scale-95 transition-all"
-                      title="Service History"
-                    >
-                      <ClipboardList className="w-4 h-4" />
-                    </button>
-                    <button 
-                      onClick={() => handleEditClick(customer)}
-                      className="p-3 bg-bg border border-border rounded-sm text-text-secondary hover:text-accent hover:border-accent/40 active:scale-95 transition-all"
-                      title="Edit Customer"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    {deletingId === customer.id ? (
-                      <div className="flex items-center gap-1 bg-red-950/40 border border-red-900/50 rounded-sm p-1">
-                        <button 
-                          onClick={() => handleDeleteClient(customer.id)}
-                          className="px-3 py-2 text-xs font-bold text-red-500 hover:text-white uppercase tracking-widest transition-colors"
-                        >
-                          Confirm
-                        </button>
-                        <button 
-                          onClick={() => setDeletingId(null)}
-                          className="p-2 text-text-secondary hover:text-white transition-colors"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
+      <main className={`flex-1 w-full mx-auto p-8 pb-32 ${currentRoute === 'dashboard' ? 'max-w-7xl' : 'max-w-2xl'}`}>
+        {currentRoute === 'dashboard' && (
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+            {/* Left Column: Command Center Calendar */}
+            <div className="xl:col-span-8 flex flex-col gap-6">
+              <div className="flex flex-col sm:flex-row items-center justify-between">
+                <div>
+                  <h2 className="text-4xl font-serif text-text-primary mb-2">Command Center</h2>
+                  <div className="flex items-center gap-4">
+                    <p className="label-caps italic">{format(new Date(), 'EEEE, MMMM do')}</p>
+                    
+                    {activeRoute ? (
+                      <button 
+                        onClick={() => setShowRouteModal('end')}
+                        className="text-[10px] border border-red-900/50 bg-red-950/20 text-red-400 px-3 py-1 rounded-sm font-bold uppercase tracking-widest hover:bg-red-900/30 transition-colors animate-pulse"
+                      >
+                        End Route
+                      </button>
                     ) : (
                       <button 
-                        onClick={() => setDeletingId(customer.id)}
-                        className="p-3 bg-bg border border-border rounded-sm text-red-500/50 hover:text-red-500 hover:border-red-500/40 active:scale-95 transition-all"
-                        title="Delete Customer"
+                        onClick={() => setShowRouteModal('start')}
+                        className="text-[10px] border border-emerald-900/50 bg-emerald-950/20 text-emerald-400 px-3 py-1 rounded-sm font-bold uppercase tracking-widest hover:bg-emerald-900/30 transition-colors"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        Start Route
                       </button>
                     )}
                   </div>
                 </div>
-
-                <div className="flex items-start gap-4 mb-8 p-4 bg-bg border border-border">
-                  <MapPin className="w-4 h-4 text-accent mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-text-primary leading-relaxed tracking-wide">{customer.address}</p>
+                <div className="flex items-center gap-3 mt-4 sm:mt-0">
+                  <button 
+                    onClick={() => setPrintSelectOpen(true)}
+                    className="p-3 bg-surface border border-border rounded-sm text-text-secondary hover:text-text-primary hover:border-accent/40 transition-all font-bold"
+                    title="Print Active Schedule"
+                  >
+                    <Printer className="w-5 h-5 text-accent" />
+                  </button>
+                  <button 
+                    onClick={handleOpenAddForm}
+                    className="flex items-center gap-2 bg-accent text-white font-bold py-3 px-5 rounded-sm uppercase tracking-[0.1em] text-[11px] hover:-translate-y-0.5 active:scale-95 transition-all shadow-lg shadow-accent/20"
+                    title="New Intake"
+                  >
+                    <Plus className="w-4 h-4" /> New Job
+                  </button>
                 </div>
+              </div>
 
-                <div className="grid grid-cols-2 gap-px bg-border mb-8 border border-border">
-                  <div className="bg-surface p-5">
-                    <p className="label-caps mb-2">Windows</p>
-                    <p className="text-2xl font-serif text-white italic">{customer.windowCount}</p>
+              {/* Calendar Widget */}
+              <div className="luxury-card p-6 flex-1 flex flex-col min-h-[500px]">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-serif text-text-primary">{format(currentMonth, 'MMMM yyyy')}</h3>
+                  <div className="flex gap-2">
+                    <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 border border-border bg-bg text-text-secondary hover:text-text-primary rounded-sm transition-colors">
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => { setCurrentMonth(new Date()); setSelectedDate(new Date()); }} className="px-4 py-2 text-[10px] uppercase font-bold tracking-widest border border-border bg-bg text-text-secondary hover:text-text-primary rounded-sm transition-colors">
+                      Today
+                    </button>
+                    <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="p-2 border border-border bg-bg text-text-secondary hover:text-text-primary rounded-sm transition-colors">
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
                   </div>
-                  <div className="bg-surface p-5">
-                    <p className="label-caps mb-2">AGL Level</p>
-                    <p className="text-2xl font-serif text-white italic">{customer.aglCount}</p>
-                  </div>
-                  {customer.mileageAttributed && (
-                    <div className="bg-surface p-5 col-span-2 border-t border-border">
-                      <p className="label-caps mb-2 text-emerald-400">Mileage Cost Attributed</p>
-                      <p className="text-xl font-serif text-emerald-400/90 italic">{customer.mileageAttributed} <span className="text-sm font-sans not-italic text-emerald-500/50">mi</span></p>
-                    </div>
-                  )}
                 </div>
+                <div className="grid grid-cols-7 gap-px flex-1 border border-border rounded-sm overflow-hidden text-center label-caps">
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                    <div key={d} className="bg-surface py-3 border-b border-border text-[9px]">{d}</div>
+                  ))}
+                  {(() => {
+                    const mStart = startOfMonth(currentMonth);
+                    const weekStart = startOfWeek(mStart);
+                    const weekEnd = endOfWeek(endOfMonth(mStart));
+                    let daysArr = [];
+                    let d = weekStart;
+                    while (d <= weekEnd || daysArr.length % 7 !== 0) { daysArr.push(d); d = addDays(d, 1); }
+                    return Object.values(daysArr).map((day, idx) => {
+                      const isSel = isSameDay(day, selectedDate);
+                      const isCurM = isSameMonth(day, currentMonth);
+                      const isT = isSameDay(day, new Date());
+                      const dayJobs = customers.filter(c => !c.completed && isSameDay(parseISO(c.appointmentTime), day));
+                      
+                      return (
+                        <div 
+                          key={idx} 
+                          onClick={() => setSelectedDate(day)}
+                          className={`min-h-[5rem] sm:min-h-[7rem] bg-surface p-1 sm:p-2 flex flex-col cursor-pointer transition-colors border-b border-r border-border hover:bg-bg
+                            ${!isCurM ? 'opacity-30' : ''}
+                            ${isSel ? 'bg-accent/10 border-accent/40' : ''}
+                          `}
+                        >
+                          <div className={`text-right text-xs mb-1 font-bold ${isT ? 'text-accent' : 'text-text-secondary'} ${isSel ? 'text-accent' : ''}`}>
+                            {format(day, 'd')}
+                          </div>
+                          <div className="flex-1 flex flex-col gap-1 overflow-hidden">
+                            {dayJobs.slice(0,3).map(j => (
+                              <div key={j.id} className="text-[9px] text-left leading-tight bg-bg text-text-primary border border-border px-1 py-0.5 rounded-sm line-clamp-1 truncate shadow-sm">
+                                {format(parseISO(j.appointmentTime), 'h:mm')} {j.name}
+                              </div>
+                            ))}
+                            {dayJobs.length > 3 && (
+                              <div className="text-[8px] text-text-secondary text-right mt-auto pr-1">+{dayJobs.length - 3}</div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })
+                  })()}
+                </div>
+              </div>
+            </div>
 
-                {customer.notes && (
-                  <div className="mb-8 p-5 bg-bg border-l-2 border-accent/40 italic">
-                    <div className="flex items-center gap-2 mb-2">
-                      <FileText className="w-3 h-3 text-accent" />
-                      <p className="label-caps !text-accent">Special Instructions</p>
-                    </div>
-                    <p className="text-sm text-text-primary/80 font-serif leading-relaxed">{customer.notes}</p>
+            {/* Right Column: Next 3 Jobs Display */}
+            <div className="xl:col-span-4 flex flex-col gap-6 pt-2">
+              <div className="flex items-center justify-between pb-3 border-b border-border">
+                <div>
+                  <h3 className="label-caps">Selected Agenda</h3>
+                  <p className="text-sm font-serif text-text-primary mt-1">{format(selectedDate, 'EEEE, MMM do')}</p>
+                </div>
+                <div className="text-[10px] text-accent border border-accent/30 bg-accent/10 px-2 py-1 rounded-sm uppercase tracking-widest font-bold">
+                  {customers.filter(c => !c.completed && isSameDay(parseISO(c.appointmentTime), selectedDate)).length} Jobs
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-5">
+                {(() => {
+                  const dayJobs = customers
+                    .filter(c => !c.completed && isSameDay(parseISO(c.appointmentTime), selectedDate))
+                    .sort((a,b) => parseISO(a.appointmentTime).getTime() - parseISO(b.appointmentTime).getTime());
+
+                  if (dayJobs.length === 0) {
+                    return (
+                      <div className="text-center py-16 bg-surface/30 rounded-sm border border-border border-dashed">
+                        <CalendarDays className="w-10 h-10 text-border mx-auto mb-3" />
+                        <p className="label-caps">No jobs selected</p>
+                        <p className="text-xs text-text-secondary mt-2">Select a date with jobs to view agenda</p>
+                      </div>
+                    )
+                  }
+
+                  return dayJobs.slice(0, 3).map(customer => (
+                    <motion.div layout key={customer.id} className="luxury-card p-5 relative border-l-[3px] border-l-accent overflow-hidden">
+                      <div className="flex justify-between items-start mb-3">
+                        <h4 className="text-lg font-serif text-text-primary leading-tight max-w-[80%] break-words">
+                          {customer.name}
+                        </h4>
+                        <span className="flex-shrink-0 text-[10px] font-bold text-text-secondary bg-bg px-2 py-1 rounded-sm shadow-sm border border-border whitespace-nowrap">
+                          {format(parseISO(customer.appointmentTime), 'h:mm a')}
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-start gap-2 mb-4 text-text-secondary">
+                        <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                        <p className="text-[11px] leading-relaxed line-clamp-2">{customer.address}</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 mb-4 text-center">
+                        <div className="bg-bg border border-border py-2 rounded-sm">
+                          <p className="text-[9px] uppercase font-bold text-text-secondary tracking-widest mb-1">Windows</p>
+                          <p className="font-serif text-text-primary text-sm">{customer.windowCount}</p>
+                        </div>
+                        <div className="bg-bg border border-border py-2 rounded-sm">
+                          <p className="text-[9px] uppercase font-bold text-text-secondary tracking-widest mb-1">AGL</p>
+                          <p className="font-serif text-text-primary text-sm">{customer.aglCount}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => handleToggleComplete(customer)}
+                          className="flex-1 bg-surface border border-border text-text-secondary hover:bg-accent hover:text-white hover:border-accent text-[10px] uppercase font-bold tracking-widest py-2 rounded-sm transition-all shadow-sm"
+                        >
+                          Complete
+                        </button>
+                        <button 
+                          onClick={() => openInMaps(customer.address)}
+                          className="px-3 bg-bg border border-border text-text-secondary hover:text-text-primary uppercase tracking-widest font-bold text-[10px] rounded-sm transition-all"
+                          title="Open Maps"
+                        >
+                          <Navigation className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </motion.div>
+                  ))
+                })()}
+                
+                {customers.filter(c => !c.completed && isSameDay(parseISO(c.appointmentTime), selectedDate)).length > 3 && (
+                  <div className="text-center py-3 border border-border border-dashed bg-surface/50 rounded-sm">
+                    <p className="text-[10px] uppercase tracking-widest font-bold text-text-secondary">+ {customers.filter(c => !c.completed && isSameDay(parseISO(c.appointmentTime), selectedDate)).length - 3} more jobs this day</p>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
 
-                <div className="flex flex-col sm:flex-row gap-4 mb-4">
-                  <button 
-                    onClick={() => openInMaps(customer.address)}
-                    className="btn-luxury-outline flex-1 flex items-center justify-center gap-3"
-                  >
-                    <Navigation className="w-4 h-4" />
-                    Launch Map
-                  </button>
-                  {customer.calendarLink && (
-                    <button 
-                      onClick={() => window.open(customer.calendarLink, '_blank')}
-                      className="btn-luxury-outline flex-1 flex items-center justify-center gap-3"
-                    >
-                      <Calendar className="w-4 h-4" />
-                      View Event
-                    </button>
-                  )}
-                  <button 
-                    onClick={() => handleToggleComplete(customer)}
-                    className={`btn-luxury-outline flex-1 flex items-center justify-center gap-3 ${customer.completed ? 'opacity-80' : 'border-accent text-accent'}`}
-                  >
-                    {customer.completed ? <RotateCcw className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-                    {customer.completed ? 'Reactivate' : 'Mark Complete'}
-                  </button>
-                </div>
-                
-                {/* Secondary Quick Actions */}
-                <div className="flex items-center gap-2 pt-4 border-t border-border mt-2 overflow-x-auto pb-1">
-                  {activeRoute && !customer.completed && (
-                    <button 
-                      onClick={() => setShowJobMileageModal(customer.id)}
-                      className="flex-1 flex items-center justify-center gap-2 p-2.5 bg-surface border border-border rounded-sm text-emerald-400 hover:text-emerald-300 hover:border-emerald-500/40 active:scale-95 transition-all text-sm label-caps"
-                      title="Tag Arrival Mileage"
-                    >
-                      <Navigation className="w-4 h-4" />
-                      <span className="hidden sm:inline">Arr. ODO</span>
-                    </button>
-                  )}
-                  <a 
-                    href={`tel:${customer.phone}`}
-                    className="flex-1 flex items-center justify-center gap-2 p-2.5 bg-surface border border-border rounded-sm text-text-secondary hover:text-accent hover:border-accent/40 active:scale-95 transition-all text-sm label-caps"
-                    title="Call Customer"
-                  >
-                    <Phone className="w-4 h-4" />
-                    <span className="hidden sm:inline">Call</span>
-                  </a>
-                  <button 
-                    onClick={() => openInMaps(customer.address)}
-                    className="flex-1 flex items-center justify-center gap-2 p-2.5 bg-surface border border-border rounded-sm text-text-secondary hover:text-accent hover:border-accent/40 active:scale-95 transition-all text-sm label-caps"
-                    title="Directions"
-                  >
-                    <MapPin className="w-4 h-4" />
-                    <span className="hidden sm:inline">Map</span>
-                  </button>
-                  <button 
-                    onClick={() => setHistoryModalCustomerId(customer.id)}
-                    className="flex-1 flex items-center justify-center gap-2 p-2.5 bg-surface border border-border rounded-sm text-text-secondary hover:text-accent hover:border-accent/40 active:scale-95 transition-all text-sm label-caps"
-                    title="Add Service Log"
-                  >
-                    <ClipboardList className="w-4 h-4" />
-                    <span className="hidden sm:inline">Log</span>
-                  </button>
-                  <button 
-                    onClick={() => {
-                       setPrintSingleCustomer(customer);
-                       setTimeout(() => window.print(), 800);
-                    }}
-                    className="flex-1 flex items-center justify-center gap-2 p-2.5 bg-surface border border-border rounded-sm text-text-secondary hover:text-accent hover:border-accent/40 active:scale-95 transition-all text-sm label-caps"
-                    title="Print Customer"
-                  >
-                    <Printer className="w-4 h-4" />
-                    <span className="hidden sm:inline">Print</span>
-                  </button>
-                </div>
-              </motion.div>
-            ))
-          )}
-        </div>
-        </>
-        ) : (
+        {currentRoute === 'history' && (
           /* History View */
           <>
             <div className="flex items-center justify-between mb-8">
@@ -1320,7 +1386,14 @@ export default function App() {
                   <div key={customer.id} className={`luxury-card p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${customer.completed ? 'opacity-60' : ''}`}>
                     <div>
                       <h4 className="text-lg font-serif text-white">{customer.name}</h4>
-                      <p className="text-sm text-text-secondary mt-1">{format(new Date(customer.appointmentTime), 'MMM do, yyyy - h:mm a')}</p>
+                      <div className="flex items-center gap-3">
+                        <p className="text-sm text-text-secondary mt-1">{format(new Date(customer.appointmentTime), 'MMM dd, yyyy h:mm a')}</p>
+                        {customer.assignedTo && customer.assignedTo !== 'Unassigned' && (
+                          <span className="text-[10px] text-accent border border-accent/30 bg-accent/10 px-2 py-0.5 rounded-sm font-bold uppercase tracking-widest mt-1">
+                            {customer.assignedTo}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex flex-col items-start sm:items-end gap-2 mt-4 sm:mt-0">
                       <div className="flex items-center gap-3">
@@ -1470,8 +1543,17 @@ export default function App() {
                           ) : (
                             <span className="px-2 py-0.5 bg-amber-950/30 border border-amber-900/50 text-amber-500 text-[9px] uppercase tracking-widest font-bold rounded-sm mt-1">Active</span>
                           )}
+                          {customer.assignedTo && customer.assignedTo !== 'Unassigned' && (
+                            <span className="px-2 py-0.5 bg-surface border border-border text-text-secondary text-[9px] uppercase tracking-widest font-bold rounded-sm mt-1">
+                              {customer.assignedTo}
+                            </span>
+                          )}
                         </div>
                         <div className="flex flex-wrap gap-4 text-xs text-text-secondary">
+                          <span className="flex items-center gap-1.5 flex-shrink-0">
+                            <Clock className="w-3.5 h-3.5 text-accent" />
+                            {format(new Date(customer.appointmentTime), 'MMM dd, yyyy h:mm a')}
+                          </span>
                           <span className="flex items-center gap-1.5 line-clamp-1 break-all">
                             <MapPin className="w-3.5 h-3.5 text-accent flex-shrink-0" />
                             {customer.address}
@@ -1570,6 +1652,195 @@ export default function App() {
             </div>
           </>
         )}
+
+        {currentRoute === 'help' && (
+          <div className="max-w-xl mx-auto space-y-12 pb-16">
+            <div>
+              <h2 className="text-3xl font-serif text-white mb-2">Training Manual</h2>
+              <p className="label-caps italic">Interactive App Guide</p>
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-xl font-serif text-accent pb-2 border-b border-border">1. The Dashboard Card</h3>
+              <p className="text-sm text-text-secondary leading-relaxed">
+                This is what your jobs look like when they are scheduled. Here is a breakdown of what the buttons do.
+              </p>
+
+              <div className="luxury-card p-6 relative border-dashed border-2 border-border mt-16 shadow-2xl">
+                {/* Mock Card Header */}
+                <div className="flex justify-between items-start mb-6">
+                  <div>
+                    <h3 className="text-xl font-serif text-white tracking-wide mb-3">John Doe</h3>
+                    <div className="flex gap-4 text-text-secondary text-sm">
+                        <span className="flex items-center gap-1 label-caps"><Clock className="w-3" /> 9:00 AM</span>
+                    </div>
+                  </div>
+                  
+                  {/* Mock Action Icons */}
+                  <div className="flex items-center gap-2 relative">
+                    {/* Tooltip for History */}
+                    <div className="absolute -top-14 left-0 w-max bg-surface border border-accent/40 text-text-primary text-[10px] uppercase font-bold tracking-widest px-3 py-2 rounded-sm shadow-xl z-20">
+                      View/Add Service Log
+                      <div className="absolute -bottom-1.5 left-4 w-3 h-3 bg-surface border-b border-r border-accent/40 rotate-45" />
+                    </div>
+                    <button className="p-3 bg-bg border border-border rounded-sm text-text-secondary relative z-10">
+                      <ClipboardList className="w-4 h-4" />
+                    </button>
+
+                    {/* Tooltip for Edit */}
+                    <div className="absolute -top-14 -right-4 w-max bg-surface border border-accent/40 text-text-primary text-[10px] uppercase font-bold tracking-widest px-3 py-2 rounded-sm shadow-xl z-20">
+                      Reschedule/Edit Job
+                      <div className="absolute -bottom-1.5 right-8 w-3 h-3 bg-surface border-b border-r border-accent/40 rotate-45" />
+                    </div>
+                    <button className="p-3 bg-bg border border-border rounded-sm text-text-secondary relative z-10">
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    
+                    <button className="p-3 bg-bg border border-border rounded-sm text-text-secondary relative z-10 opacity-50">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4 mb-4 relative mt-16">
+                    {/* Tooltip for Mark Complete */}
+                    <div className="absolute -top-14 right-0 w-max bg-accent text-bg text-[10px] uppercase font-bold tracking-widest px-4 py-2 rounded-sm shadow-[0_0_15px_rgba(235,190,131,0.3)] z-20">
+                      Finishes job & moves to History
+                      <div className="absolute -bottom-1 right-12 w-3 h-3 bg-accent rotate-45" />
+                    </div>
+
+                    <button className="btn-luxury-outline flex-1 flex items-center justify-center gap-2 opacity-30"><Navigation className="w-4 h-4" /> Launch Map</button>
+                    <button className="btn-luxury-outline flex-1 flex items-center justify-center gap-2 opacity-30"><Calendar className="w-4 h-4" /> View Event</button>
+                    <button className="btn-luxury-outline flex-1 flex items-center justify-center gap-2 border-accent text-accent relative z-10"><CheckCircle2 className="w-4 h-4" /> Mark Complete</button>
+                </div>
+
+                {/* Quick actions row mockup */}
+                <div className="flex items-center gap-2 pt-4 border-t border-border mt-16 relative overflow-visible">
+                    {/* Tooltip for Arrival Odo */}
+                    <div className="absolute -top-14 left-0 w-max bg-emerald-500 text-bg text-[10px] uppercase font-bold tracking-widest px-4 py-2 rounded-sm shadow-[0_0_15px_rgba(16,185,129,0.3)] z-30">
+                      Tap when you arrive to log route cost
+                      <div className="absolute -bottom-1 left-8 w-3 h-3 bg-emerald-500 rotate-45" />
+                    </div>
+
+                    <button className="flex-1 flex items-center justify-center gap-2 p-2.5 bg-emerald-950/20 border border-emerald-500 text-emerald-400 rounded-sm font-bold text-xs relative z-20 shadow-[0_0_10px_rgba(16,185,129,0.2)]"><Navigation className="w-4 h-4" /> ARR. ODO</button>
+                    <button className="flex-1 p-2.5 bg-surface border border-border rounded-sm text-text-secondary text-xs font-bold text-center opacity-50">CALL</button>
+                    <button className="flex-1 p-2.5 bg-surface border border-border rounded-sm text-text-secondary text-xs font-bold text-center opacity-50">MAP</button>
+                    <button className="flex-1 p-2.5 bg-surface border border-border rounded-sm text-text-secondary text-xs font-bold text-center opacity-50">LOG</button>
+                    <button className="flex-1 p-2.5 bg-surface border border-border rounded-sm text-text-secondary text-xs font-bold text-center opacity-50">PRINT</button>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6 pt-8 border-t border-border">
+              <h3 className="text-xl font-serif text-accent pb-2 border-b border-border">2. Mileage Tracker Rules</h3>
+              <ul className="space-y-6 text-sm text-text-secondary leading-relaxed">
+                  <li className="flex gap-4">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center font-serif text-white">1</div>
+                    <div>
+                      <strong className="text-white block mb-1">Start Route</strong>
+                      Hit the green "Start Route" button at the very top of your dashboard. Enter your starting truck odometer. Do this before your first drive.
+                    </div>
+                  </li>
+                  <li className="flex gap-4">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-950/30 border border-emerald-900/50 flex items-center justify-center font-serif text-emerald-400">2</div>
+                    <div>
+                      <strong className="text-emerald-400 block mb-1">Arrival Odometer (ARR. ODO)</strong>
+                      When you pull up to your first client's house, tap the green <em>"ARR. ODO"</em> button at the bottom of their specific job card (shown in the diagram above). Put in your current truck odometer. The app will subtract the numbers and tag that mileage cost to their profile.
+                    </div>
+                  </li>
+                  <li className="flex gap-4">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center font-serif text-white">3</div>
+                    <div>
+                      <strong className="text-white block mb-1">Next Job</strong>
+                      Drive to your next job. When you park, tap the next client's <em>"ARR ODO"</em> button. It will calculate the mileage between the last stop and this one, tagging the cost to this new client.
+                    </div>
+                  </li>
+                  <li className="flex gap-4">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-red-950/30 border border-red-900/50 flex items-center justify-center font-serif text-red-500">4</div>
+                    <div>
+                      <strong className="text-red-400 block mb-1">End Route</strong>
+                      At the very end of the day, when you are done driving, tap the pulsing red "End Route" button at the top of your dashboard to close out your day.
+                    </div>
+                  </li>
+                  <li className="flex gap-4">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-accent/10 border border-accent/20 flex items-center justify-center font-serif text-accent">5</div>
+                    <div>
+                      <strong className="text-accent block mb-1">Export your Taxes</strong>
+                      When tax season comes, navigate to the <em>Job History</em> tab and tap "Export Mileage CSV" to download the whole spreadsheet for your accountant.
+                    </div>
+                  </li>
+              </ul>
+            </div>
+
+            <div className="space-y-6 pt-8 border-t border-border mb-12">
+              <h3 className="text-xl font-serif text-accent pb-2 border-b border-border">3. Directory & Search</h3>
+              <p className="text-sm text-text-secondary leading-relaxed bg-surface p-6 rounded-sm border border-border">
+                  The <strong>Directory</strong> tab contains every person in your database alphabetically. Active or Completed. If a client calls you out of the blue, go to the Directory tab and use the Search bar to instantly pull them up. Click the Pencil icon to give them a new appointment date, hit save, and they will pop right back onto your active dashboard for that day!
+              </p>
+            </div>
+          </div>
+        )}
+
+        {currentRoute === 'team' && (
+          <div className="max-w-xl mx-auto pb-16">
+            <div className="mb-10">
+              <h2 className="text-3xl font-serif text-white mb-2">Team Management</h2>
+              <p className="text-sm text-text-secondary">Manage the employees and teams available for job assignments.</p>
+            </div>
+
+            <div className="luxury-card p-8 mb-10">
+              <h3 className="text-lg font-serif text-white tracking-wide mb-6">Add Team Member</h3>
+              <form onSubmit={handleAddEmployee} className="flex gap-4">
+                <input 
+                  type="text"
+                  required
+                  placeholder="e.g. John Smith or 'Team Alpha'"
+                  value={newEmployeeName}
+                  onChange={(e) => setNewEmployeeName(e.target.value)}
+                  className="input-luxury flex-1"
+                />
+                <button 
+                  type="submit"
+                  disabled={isAddingEmployee}
+                  className="btn-luxury-primary flex items-center justify-center gap-2 px-6 whitespace-nowrap disabled:opacity-50"
+                >
+                  <Plus className="w-4 h-4" /> Add
+                </button>
+              </form>
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-lg font-serif text-white tracking-wide mb-6 border-b border-border pb-2">Active Team Directory</h3>
+              {employees.length === 0 ? (
+                <div className="text-center py-16 bg-surface/30 rounded-sm border border-border border-dashed">
+                  <UserIcon className="w-8 h-8 text-border mx-auto mb-3" />
+                  <p className="label-caps mb-1">No custom team members added yet.</p>
+                  <p className="text-xs text-text-secondary mx-auto max-w-xs leading-relaxed">
+                    Add a name above to make them available in the "Assigned Employee" dropdown on intake forms.
+                  </p>
+                </div>
+              ) : (
+                employees.map(emp => (
+                  <div key={emp.id} className="flex items-center justify-between p-4 bg-surface border border-border rounded-sm">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-accent/10 border border-accent/20 flex flex-shrink-0 items-center justify-center text-accent">
+                        <Users className="w-4 h-4" />
+                      </div>
+                      <span className="font-serif text-white text-lg">{emp.name}</span>
+                    </div>
+                    <button 
+                      onClick={() => handleDeleteEmployee(emp.id, emp.name)}
+                      className="p-2 text-red-500/50 hover:text-red-500 hover:bg-bg rounded-sm transition-all"
+                      title="Remove Member"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Add Form Overlay */}
@@ -1598,6 +1869,12 @@ export default function App() {
                   <X className="w-6 h-6" />
                 </button>
               </div>
+
+              {formError && (
+                <div className="mb-8 p-4 bg-red-950/40 border border-red-900/50 rounded-sm">
+                  <p className="text-sm font-serif text-red-200">{formError}</p>
+                </div>
+              )}
 
               {syncError && (
                 <div className="mb-8 p-4 bg-red-950/40 border border-red-900/50 rounded-sm">
@@ -1636,6 +1913,24 @@ export default function App() {
                       onChange={e => setFormData({...formData, address: e.target.value})}
                       placeholder="452 Oakwood Drive, Austin, TX"
                     />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="label-caps block mb-3">Assigned Employee</label>
+                    <div className="relative">
+                      <select
+                        className="input-luxury w-full appearance-none pr-10"
+                        value={formData.assignedTo}
+                        onChange={e => setFormData({...formData, assignedTo: e.target.value})}
+                      >
+                        <option value="Unassigned">Unassigned</option>
+                        {employees.map(emp => (
+                          <option key={emp.id} value={emp.name}>{emp.name}</option>
+                        ))}
+                      </select>
+                      <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-text-secondary">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                      </div>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-px bg-border border border-border">
                     <div className="bg-bg p-4 flex flex-col">
@@ -1833,7 +2128,7 @@ export default function App() {
                     <div className="flex justify-between items-start mb-3">
                       <span className="font-serif text-lg text-white">{log.type}</span>
                       <span className="text-xs font-bold tracking-widest text-text-secondary px-2 py-1 bg-bg rounded-sm border border-border">
-                        {format(new Date(log.date + 'T12:00:00'), 'MMM do, yyyy')}
+                        {format(new Date(log.date + 'T12:00:00'), 'MMM dd, yyyy')}
                       </span>
                     </div>
                     {log.notes && (

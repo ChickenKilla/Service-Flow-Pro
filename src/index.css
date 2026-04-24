@@ -1,16 +1,60 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:ital,wght@0,400..900;1,400..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
+
+:root {
+  --theme-bg: #f8f8f8;
+  --theme-surface: #ffffff;
+  --theme-border: #e2e2e2;
+  --theme-accent: #b38a4d;
+  --theme-text-primary: #111111;
+  --theme-text-secondary: #555555;
+  --theme-font-heading: "Playfair Display", serif;
+  --theme-radius: 0.125rem;
+}
+
+:root[data-theme="dark"] {
+  --theme-bg: #0a0a0a;
+  --theme-surface: #141414;
+  --theme-border: #2a2a2a;
+  --theme-accent: #c5a059;
+  --theme-text-primary: #e0e0e0;
+  --theme-text-secondary: #888888;
+  --theme-font-heading: "Playfair Display", serif;
+  --theme-radius: 0.125rem;
+}
+
+:root[data-theme="midnight"] {
+  --theme-bg: #0b1120;
+  --theme-surface: #1e293b;
+  --theme-border: #334155;
+  --theme-accent: #3b82f6; /* Blue 500 */
+  --theme-text-primary: #f8fafc;
+  --theme-text-secondary: #94a3b8;
+  --theme-font-heading: "Space Grotesk", sans-serif;
+  --theme-radius: 0.75rem;
+}
+
+:root[data-theme="forest"] {
+  --theme-bg: #0c1712;
+  --theme-surface: #172a21;
+  --theme-border: #2b4a3a;
+  --theme-accent: #10b981; /* Emerald 500 */
+  --theme-text-primary: #ecfdf5;
+  --theme-text-secondary: #6ee7b7;
+  --theme-font-heading: "Space Grotesk", sans-serif;
+  --theme-radius: 0.5rem;
+}
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Playfair Display", serif;
+  --font-serif: var(--theme-font-heading);
   
-  --color-bg: #0a0a0a;
-  --color-surface: #141414;
-  --color-border: #2a2a2a;
-  --color-accent: #c5a059;
-  --color-text-primary: #e0e0e0;
-  --color-text-secondary: #888888;
+  --color-bg: var(--theme-bg);
+  --color-surface: var(--theme-surface);
+  --color-border: var(--theme-border);
+  --color-accent: var(--theme-accent);
+  --color-text-primary: var(--theme-text-primary);
+  --color-text-secondary: var(--theme-text-secondary);
 }
 
 @layer base {
@@ -20,7 +64,8 @@
 }
 
 .luxury-card {
-  @apply bg-surface border border-border shadow-2xl rounded-sm;
+  @apply bg-surface border border-border shadow-2xl;
+  border-radius: var(--theme-radius);
 }
 
 .label-caps {
@@ -28,13 +73,16 @@
 }
 
 .input-luxury {
-  @apply w-full bg-surface border border-border rounded-sm px-4 py-3 text-white outline-none focus:border-accent transition-all placeholder:text-text-secondary/30;
+  @apply w-full bg-surface border border-border px-4 py-3 text-text-primary outline-none focus:border-accent transition-all placeholder:text-text-secondary/50;
+  border-radius: var(--theme-radius);
 }
 
 .btn-luxury-primary {
-  @apply bg-accent text-black font-bold py-4 px-6 rounded-sm uppercase tracking-[0.2em] text-[11px] active:scale-95 transition-all;
+  @apply bg-accent text-white font-bold py-4 px-6 uppercase tracking-[0.2em] text-[11px] active:scale-95 transition-all;
+  border-radius: var(--theme-radius);
 }
 
 .btn-luxury-outline {
-  @apply bg-transparent border border-border text-text-primary font-bold py-4 px-6 rounded-sm uppercase tracking-[0.2em] text-[11px] active:scale-95 transition-all hover:bg-white/5;
+  @apply bg-transparent border border-border text-text-primary font-bold py-4 px-6 uppercase tracking-[0.2em] text-[11px] active:scale-95 transition-all hover:bg-black/5 dark:hover:bg-white/5;
+  border-radius: var(--theme-radius);
 }
