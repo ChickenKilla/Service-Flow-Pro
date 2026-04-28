@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import Fuse from 'fuse.js';
 import { 
   onAuthStateChanged, 
   User 
@@ -305,6 +306,47 @@ export default function App() {
 
     return () => clearInterval(interval);
   }, [customers, user]);
+
+  const historyFilteredCustomers = useMemo(() => {
+    let result = customers;
+
+    if (historySearchQuery.trim()) {
+      const fuse = new Fuse(result, {
+        keys: ['name', 'address', 'phone'],
+        threshold: 0.4,
+        ignoreLocation: true,
+      });
+      result = fuse.search(historySearchQuery).map(res => res.item);
+    }
+
+    return result
+      .filter(c => {
+        if (historyFilter === 'active') return !c.completed;
+        if (historyFilter === 'completed') return c.completed;
+        return true;
+      })
+      .sort((a, b) => {
+        if (historySort === 'nameAsc') return a.name.localeCompare(b.name);
+        const timeA = new Date(a.appointmentTime).getTime();
+        const timeB = new Date(b.appointmentTime).getTime();
+        return historySort === 'dateAsc' ? timeA - timeB : timeB - timeA;
+      });
+  }, [customers, historySearchQuery, historyFilter, historySort]);
+
+  const directoryFilteredCustomers = useMemo(() => {
+    let result = customers;
+
+    if (directorySearchQuery.trim()) {
+      const fuse = new Fuse(result, {
+        keys: ['name', 'address', 'phone'],
+        threshold: 0.4,
+        ignoreLocation: true,
+      });
+      result = fuse.search(directorySearchQuery).map(res => res.item);
+    }
+
+    return result.sort((a, b) => a.name.localeCompare(b.name));
+  }, [customers, directorySearchQuery]);
 
   const handleConnectCalendar = async () => {
     try {
@@ -1251,10 +1293,14 @@ export default function App() {
                         </span>
                       </div>
                       
-                      <div className="flex items-start gap-2 mb-4 text-text-secondary">
-                        <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                        <p className="text-[11px] leading-relaxed line-clamp-2">{customer.address}</p>
-                      </div>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); openInMaps(customer.address); }}
+                        className="flex items-start text-left gap-2 mb-4 text-text-secondary hover:text-accent transition-colors group"
+                        title="Navigate to address"
+                      >
+                        <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                        <p className="text-[11px] leading-relaxed line-clamp-2 underline decoration-transparent group-hover:decoration-accent/40 underline-offset-4">{customer.address}</p>
+                      </button>
 
                       <div className="grid grid-cols-2 gap-2 mb-4 text-center">
                         <div className="bg-bg border border-border py-2 rounded-sm">
@@ -1364,25 +1410,7 @@ export default function App() {
             </div>
 
             <div className="space-y-6">
-              {customers
-                .filter(c => {
-                  if (historySearchQuery) {
-                    const q = historySearchQuery.toLowerCase();
-                    if (!c.name.toLowerCase().includes(q) && !c.address.toLowerCase().includes(q)) {
-                      return false;
-                    }
-                  }
-                  if (historyFilter === 'active') return !c.completed;
-                  if (historyFilter === 'completed') return c.completed;
-                  return true;
-                })
-                .sort((a, b) => {
-                  if (historySort === 'nameAsc') return a.name.localeCompare(b.name);
-                  const timeA = new Date(a.appointmentTime).getTime();
-                  const timeB = new Date(b.appointmentTime).getTime();
-                  return historySort === 'dateAsc' ? timeA - timeB : timeB - timeA;
-                })
-                .map(customer => (
+              {historyFilteredCustomers.map(customer => (
                   <div key={customer.id} className={`luxury-card p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${customer.completed ? 'opacity-60' : ''}`}>
                     <div>
                       <h4 className="text-lg font-serif text-white">{customer.name}</h4>
@@ -1400,7 +1428,13 @@ export default function App() {
                         <span className={`label-caps ${customer.completed ? 'text-text-secondary' : 'text-accent'}`}>
                           {customer.completed ? 'Completed' : 'Active'}
                         </span>
-                        <p className="text-xs text-text-secondary/70 truncate max-w-[200px] hidden sm:block">{customer.address}</p>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); openInMaps(customer.address); }}
+                          className="text-xs text-text-secondary/70 truncate max-w-[200px] hidden sm:block text-left hover:text-accent underline decoration-transparent hover:decoration-accent/40 transition-all underline-offset-4 cursor-pointer"
+                          title="Navigate to address"
+                        >
+                          {customer.address}
+                        </button>
                         {customer.mileageAttributed && (
                           <span className="text-[10px] bg-emerald-950/30 text-emerald-400 border border-emerald-900/50 px-2 py-0.5 rounded-sm font-mono flex items-center gap-1">
                             <Navigation className="w-3 h-3" /> {customer.mileageAttributed}mi
@@ -1410,7 +1444,13 @@ export default function App() {
                       
                       {/* Action Buttons */}
                       <div className="flex items-center gap-2 mt-1 w-full sm:w-auto justify-between sm:justify-end">
-                        <p className="text-xs text-text-secondary/70 truncate sm:hidden block">{customer.address}</p>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); openInMaps(customer.address); }}
+                          className="text-xs text-text-secondary/70 truncate sm:hidden block text-left hover:text-accent underline decoration-transparent hover:decoration-accent/40 transition-all underline-offset-4 cursor-pointer"
+                          title="Navigate to address"
+                        >
+                          {customer.address}
+                        </button>
                         <div className="flex items-center gap-2">
                           {deletingId === customer.id ? (
                             <div className="flex items-center gap-1 bg-red-950/40 border border-red-900/50 rounded-sm p-0.5">
@@ -1471,7 +1511,7 @@ export default function App() {
                   </div>
               ))}
               
-              {customers.length === 0 && (
+              {historyFilteredCustomers.length === 0 && (
                 <div className="text-center py-24 bg-surface/30 rounded-sm border border-border border-dashed">
                   <History className="w-12 h-12 text-border mx-auto mb-4" />
                   <p className="label-caps">Archive is empty</p>
@@ -1524,13 +1564,7 @@ export default function App() {
             </div>
 
             <div className="space-y-4">
-              {customers
-                .filter(c => directorySearchQuery 
-                  ? (c.name.toLowerCase().includes(directorySearchQuery.toLowerCase()) || c.address.toLowerCase().includes(directorySearchQuery.toLowerCase()))
-                  : true
-                )
-                .sort((a, b) => a.name.localeCompare(b.name)) /* Simple alphabetical sort */
-                .map((customer) => (
+              {directoryFilteredCustomers.map((customer) => (
                   <div key={`dir-${customer.id}`} className="bg-bg border border-border p-5 rounded-sm hover:border-accent/40 transition-colors">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       
@@ -1554,10 +1588,14 @@ export default function App() {
                             <Clock className="w-3.5 h-3.5 text-accent" />
                             {format(new Date(customer.appointmentTime), 'MMM dd, yyyy h:mm a')}
                           </span>
-                          <span className="flex items-center gap-1.5 line-clamp-1 break-all">
-                            <MapPin className="w-3.5 h-3.5 text-accent flex-shrink-0" />
-                            {customer.address}
-                          </span>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); openInMaps(customer.address); }}
+                            className="flex items-center text-left gap-1.5 line-clamp-1 break-all text-text-secondary hover:text-accent transition-colors group cursor-pointer w-full"
+                            title="Navigate to address"
+                          >
+                            <MapPin className="w-3.5 h-3.5 text-accent flex-shrink-0 group-hover:scale-110 transition-transform" />
+                            <span className="underline decoration-transparent group-hover:decoration-accent/40 underline-offset-4">{customer.address}</span>
+                          </button>
                           <span className="flex items-center gap-1.5 flex-shrink-0">
                             <Phone className="w-3.5 h-3.5 text-accent" />
                             {customer.phone}
@@ -1643,7 +1681,7 @@ export default function App() {
                   </div>
               ))}
               
-              {customers.length === 0 && (
+              {directoryFilteredCustomers.length === 0 && (
                 <div className="text-center py-24 bg-surface/30 rounded-sm border border-border border-dashed">
                   <Users className="w-12 h-12 text-border mx-auto mb-4" />
                   <p className="label-caps">Directory is empty</p>
