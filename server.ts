@@ -115,7 +115,16 @@ async function startServer() {
       res.json(response.data);
     } catch (error: any) {
       console.error('Calendar API Error:', error);
-      res.status(500).json({ error: error.message });
+      const isInvalidGrant = error.message === 'invalid_grant' || 
+                             error?.response?.data?.error === 'invalid_grant' ||
+                             error?.response?.data?.error_description?.includes('invalid_grant');
+                             
+      if (isInvalidGrant) {
+        res.status(401).json({ error: 'invalid_grant' });
+      } else {
+        const errorMsg = error?.response?.data?.error?.message || error?.response?.data?.error || error.message || 'Unknown calendar error';
+        res.status(500).json({ error: errorMsg });
+      }
     }
   });
 

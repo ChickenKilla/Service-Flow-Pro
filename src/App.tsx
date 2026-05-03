@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import Fuse from 'fuse.js';
+import React, { useState, useEffect } from 'react';
 import { 
   onAuthStateChanged, 
   User 
@@ -46,9 +45,14 @@ import {
   Sun,
   Moon,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  MessageSquare,
+  Sparkles,
+  Send,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { GoogleGenAI } from "@google/genai";
 import { 
   format, 
   startOfWeek, 
@@ -306,47 +310,6 @@ export default function App() {
 
     return () => clearInterval(interval);
   }, [customers, user]);
-
-  const historyFilteredCustomers = useMemo(() => {
-    let result = customers;
-
-    if (historySearchQuery.trim()) {
-      const fuse = new Fuse(result, {
-        keys: ['name', 'address', 'phone'],
-        threshold: 0.4,
-        ignoreLocation: true,
-      });
-      result = fuse.search(historySearchQuery).map(res => res.item);
-    }
-
-    return result
-      .filter(c => {
-        if (historyFilter === 'active') return !c.completed;
-        if (historyFilter === 'completed') return c.completed;
-        return true;
-      })
-      .sort((a, b) => {
-        if (historySort === 'nameAsc') return a.name.localeCompare(b.name);
-        const timeA = new Date(a.appointmentTime).getTime();
-        const timeB = new Date(b.appointmentTime).getTime();
-        return historySort === 'dateAsc' ? timeA - timeB : timeB - timeA;
-      });
-  }, [customers, historySearchQuery, historyFilter, historySort]);
-
-  const directoryFilteredCustomers = useMemo(() => {
-    let result = customers;
-
-    if (directorySearchQuery.trim()) {
-      const fuse = new Fuse(result, {
-        keys: ['name', 'address', 'phone'],
-        threshold: 0.4,
-        ignoreLocation: true,
-      });
-      result = fuse.search(directorySearchQuery).map(res => res.item);
-    }
-
-    return result.sort((a, b) => a.name.localeCompare(b.name));
-  }, [customers, directorySearchQuery]);
 
   const handleConnectCalendar = async () => {
     try {
@@ -636,6 +599,10 @@ export default function App() {
           } catch (calErr: any) {
             console.error(`Failed to sync calendar event (Attempt ${attempt})`, calErr);
             lastSyncError = calErr;
+            const errMsg = calErr.message || String(calErr);
+            if (errMsg === 'invalid_grant' || errMsg.includes('invalid_grant')) {
+              break; // Don't retry if the grant is definitively invalid
+            }
             if (attempt < 3) {
               // Wait 1 second before retrying
               await new Promise(resolve => setTimeout(resolve, 1000));
@@ -644,7 +611,21 @@ export default function App() {
         }
         
         if (!syncSuccess && lastSyncError) {
-          setSyncError(`Calendar sync failed after 3 attempts: ${lastSyncError.message}. The info was saved locally.`);
+          const errMsg = lastSyncError.message || String(lastSyncError);
+          const lowerMsg = errMsg.toLowerCase();
+          
+          if (lowerMsg.includes('invalid_grant')) {
+            setSyncError(`Calendar connection expired or was revoked. Please click 'Link Calendar' on your dashboard to sign in again and ensure permissions are granted. Your data was successfully saved to the APEX database.`);
+            setGoogleTokens(null);
+            localStorage.removeItem('google_calendar_tokens');
+          } else if (lowerMsg.includes('rate limit') || lowerMsg.includes('quota')) {
+            setSyncError(`Google Calendar rate limit exceeded. Please wait a few moments and try syncing again. Your data was securely saved to the APEX database.`);
+          } else if (lowerMsg.includes('insufficient permission') || lowerMsg.includes('forbidden')) {
+            setSyncError(`We don't have permission to modify your calendar. Please reconnect your Google account and ensure you check the box granting Calendar access. Your data was successfully saved to the APEX database.`);
+          } else {
+            setSyncError(`Calendar sync failed: ${errMsg}. Don't worry, your data was saved to the APEX database.`);
+          }
+          
           setIsSyncing(false); // Make sure syncing state is cleared
           return; // Don't close the form so the user can read the error
         }
@@ -785,6 +766,67 @@ export default function App() {
       } catch (err) {
         console.error("Failed to delete employee:", err);
       }
+    }
+  };
+
+  // Map Assistant State
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [assistantMessages, setAssistantMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([
+    { role: 'assistant', content: "Hello! I'm your APEX Map Assistant. How can I help you optimize your service route today?" }
+  ]);
+  const [assistantInput, setAssistantInput] = useState('');
+  const [isAssistantLoading, setIsAssistantLoading] = useState(false);
+
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+
+  const handleAssistantSend = async () => {
+    if (!assistantInput.trim() || isAssistantLoading) return;
+
+    const userMessage = assistantInput.trim();
+    setAssistantMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setAssistantInput('');
+    setIsAssistantLoading(true);
+
+    try {
+      const activeJobs = customers.filter(c => !c.completed);
+      const jobsContext = activeJobs.map(j => ({
+        name: j.name,
+        address: j.address,
+        time: format(parseISO(j.appointmentTime), 'h:mm a'),
+        windows: j.windowCount,
+        agl: j.aglCount,
+        notes: j.notes
+      }));
+
+      const systemPrompt = `You are the APEX Map Assistant, a specialized AI for a window cleaning and service management app.
+Your goal is to help the user manage their jobs, optimize their route, and answer questions about their schedule.
+Current context:
+- User: ${user?.displayName || 'Service Tech'}
+- Date: ${format(new Date(), 'EEEE, MMMM do, yyyy')}
+- Filtered Jobs: ${JSON.stringify(jobsContext)}
+
+Provide concise, helpful, and professional advice. Focus on efficiency and customer service.
+If asked about a route, suggest a logical order based on the addresses and appointment times provided.`;
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [
+          ...assistantMessages.map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.content }] })),
+          { role: 'user', parts: [{ text: userMessage }] }
+        ],
+        config: {
+          systemInstruction: systemPrompt,
+          temperature: 0.7,
+        }
+      });
+
+      const assistantContent = response.text || "I'm sorry, I couldn't process that request at the moment.";
+      setAssistantMessages(prev => [...prev, { role: 'assistant', content: assistantContent }]);
+    } catch (err) {
+      console.error("Gemini Assistant Error:", err);
+      setAssistantMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I'm having trouble connecting right now. Please try again in a moment." }]);
+    } finally {
+      setIsAssistantLoading(false);
     }
   };
 
@@ -1045,22 +1087,6 @@ export default function App() {
               Training
             </button>
           </div>
-          {!googleTokens && (
-            <button 
-              onClick={handleConnectCalendar}
-              className="text-[10px] border border-amber-900/50 bg-amber-950/20 text-accent px-4 py-2 rounded-sm font-bold uppercase tracking-widest hover:bg-amber-900/30 transition-colors"
-            >
-              Link Calendar
-            </button>
-          )}
-          {googleTokens && (
-            <div className="text-[10px] text-accent/60 font-bold uppercase tracking-[0.2em] flex flex-col items-end gap-1">
-              <div className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 bg-accent rounded-full animate-pulse" />
-                Live Sync
-              </div>
-            </div>
-          )}
           {/* Offline/Online Indicator */}
           <div className={`text-[10px] font-bold uppercase tracking-[0.2em] flex items-center gap-2 px-3 py-1.5 rounded-sm border ${isOnline ? 'border-emerald-900/50 bg-emerald-950/20 text-emerald-500' : 'border-red-900/50 bg-red-950/20 text-red-500'}`}>
             <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'}`} />
@@ -1193,8 +1219,48 @@ export default function App() {
 
               {/* Calendar Widget */}
               <div className="luxury-card p-6 flex-1 flex flex-col min-h-[500px]">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-serif text-text-primary">{format(currentMonth, 'MMMM yyyy')}</h3>
+                <div className="flex flex-col xl:flex-row xl:items-center justify-between mb-6 gap-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                    <h3 className="text-xl font-serif text-text-primary">{format(currentMonth, 'MMMM yyyy')}</h3>
+                    
+                    <div className="flex items-center gap-3">
+                      {!googleTokens && (
+                        <button 
+                          onClick={handleConnectCalendar}
+                          className="text-[10px] border border-amber-900/50 bg-amber-950/20 text-accent px-3 py-1 rounded-sm font-bold uppercase tracking-widest hover:bg-amber-900/30 transition-colors"
+                        >
+                          Link Calendar
+                        </button>
+                      )}
+                      
+                      {googleTokens && (
+                        <>
+                          <div className="text-[10px] font-bold uppercase tracking-[0.2em] flex items-center gap-2 text-emerald-500/80">
+                            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                            Live Sync
+                          </div>
+                          <button
+                            onClick={() => {
+                              setGoogleTokens(null);
+                              localStorage.removeItem('google_calendar_tokens');
+                            }}
+                            className="text-[9px] uppercase font-bold tracking-widest text-text-secondary hover:text-red-400 transition-colors pl-2 border-l border-border/50"
+                          >
+                            Disconnect
+                          </button>
+                          <a 
+                            href="https://calendar.google.com" 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-[9px] uppercase font-bold tracking-widest text-text-secondary hover:text-accent transition-colors flex items-center gap-1 pl-2 border-l border-border/50"
+                            title="Open Google Calendar"
+                          >
+                            Open ↗
+                          </a>
+                        </>
+                      )}
+                    </div>
+                  </div>
                   <div className="flex gap-2">
                     <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="p-2 border border-border bg-bg text-text-secondary hover:text-text-primary rounded-sm transition-colors">
                       <ChevronLeft className="w-4 h-4" />
@@ -1293,14 +1359,10 @@ export default function App() {
                         </span>
                       </div>
                       
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); openInMaps(customer.address); }}
-                        className="flex items-start text-left gap-2 mb-4 text-text-secondary hover:text-accent transition-colors group"
-                        title="Navigate to address"
-                      >
-                        <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
-                        <p className="text-[11px] leading-relaxed line-clamp-2 underline decoration-transparent group-hover:decoration-accent/40 underline-offset-4">{customer.address}</p>
-                      </button>
+                      <div className="flex items-start gap-2 mb-4 text-text-secondary">
+                        <MapPin className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                        <p className="text-[11px] leading-relaxed line-clamp-2">{customer.address}</p>
+                      </div>
 
                       <div className="grid grid-cols-2 gap-2 mb-4 text-center">
                         <div className="bg-bg border border-border py-2 rounded-sm">
@@ -1410,7 +1472,25 @@ export default function App() {
             </div>
 
             <div className="space-y-6">
-              {historyFilteredCustomers.map(customer => (
+              {customers
+                .filter(c => {
+                  if (historySearchQuery) {
+                    const q = historySearchQuery.toLowerCase();
+                    if (!c.name.toLowerCase().includes(q) && !c.address.toLowerCase().includes(q)) {
+                      return false;
+                    }
+                  }
+                  if (historyFilter === 'active') return !c.completed;
+                  if (historyFilter === 'completed') return c.completed;
+                  return true;
+                })
+                .sort((a, b) => {
+                  if (historySort === 'nameAsc') return a.name.localeCompare(b.name);
+                  const timeA = new Date(a.appointmentTime).getTime();
+                  const timeB = new Date(b.appointmentTime).getTime();
+                  return historySort === 'dateAsc' ? timeA - timeB : timeB - timeA;
+                })
+                .map(customer => (
                   <div key={customer.id} className={`luxury-card p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${customer.completed ? 'opacity-60' : ''}`}>
                     <div>
                       <h4 className="text-lg font-serif text-white">{customer.name}</h4>
@@ -1428,13 +1508,7 @@ export default function App() {
                         <span className={`label-caps ${customer.completed ? 'text-text-secondary' : 'text-accent'}`}>
                           {customer.completed ? 'Completed' : 'Active'}
                         </span>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); openInMaps(customer.address); }}
-                          className="text-xs text-text-secondary/70 truncate max-w-[200px] hidden sm:block text-left hover:text-accent underline decoration-transparent hover:decoration-accent/40 transition-all underline-offset-4 cursor-pointer"
-                          title="Navigate to address"
-                        >
-                          {customer.address}
-                        </button>
+                        <p className="text-xs text-text-secondary/70 truncate max-w-[200px] hidden sm:block">{customer.address}</p>
                         {customer.mileageAttributed && (
                           <span className="text-[10px] bg-emerald-950/30 text-emerald-400 border border-emerald-900/50 px-2 py-0.5 rounded-sm font-mono flex items-center gap-1">
                             <Navigation className="w-3 h-3" /> {customer.mileageAttributed}mi
@@ -1444,13 +1518,7 @@ export default function App() {
                       
                       {/* Action Buttons */}
                       <div className="flex items-center gap-2 mt-1 w-full sm:w-auto justify-between sm:justify-end">
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); openInMaps(customer.address); }}
-                          className="text-xs text-text-secondary/70 truncate sm:hidden block text-left hover:text-accent underline decoration-transparent hover:decoration-accent/40 transition-all underline-offset-4 cursor-pointer"
-                          title="Navigate to address"
-                        >
-                          {customer.address}
-                        </button>
+                        <p className="text-xs text-text-secondary/70 truncate sm:hidden block">{customer.address}</p>
                         <div className="flex items-center gap-2">
                           {deletingId === customer.id ? (
                             <div className="flex items-center gap-1 bg-red-950/40 border border-red-900/50 rounded-sm p-0.5">
@@ -1511,7 +1579,7 @@ export default function App() {
                   </div>
               ))}
               
-              {historyFilteredCustomers.length === 0 && (
+              {customers.length === 0 && (
                 <div className="text-center py-24 bg-surface/30 rounded-sm border border-border border-dashed">
                   <History className="w-12 h-12 text-border mx-auto mb-4" />
                   <p className="label-caps">Archive is empty</p>
@@ -1564,7 +1632,13 @@ export default function App() {
             </div>
 
             <div className="space-y-4">
-              {directoryFilteredCustomers.map((customer) => (
+              {customers
+                .filter(c => directorySearchQuery 
+                  ? (c.name.toLowerCase().includes(directorySearchQuery.toLowerCase()) || c.address.toLowerCase().includes(directorySearchQuery.toLowerCase()))
+                  : true
+                )
+                .sort((a, b) => a.name.localeCompare(b.name)) /* Simple alphabetical sort */
+                .map((customer) => (
                   <div key={`dir-${customer.id}`} className="bg-bg border border-border p-5 rounded-sm hover:border-accent/40 transition-colors">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       
@@ -1588,14 +1662,10 @@ export default function App() {
                             <Clock className="w-3.5 h-3.5 text-accent" />
                             {format(new Date(customer.appointmentTime), 'MMM dd, yyyy h:mm a')}
                           </span>
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); openInMaps(customer.address); }}
-                            className="flex items-center text-left gap-1.5 line-clamp-1 break-all text-text-secondary hover:text-accent transition-colors group cursor-pointer w-full"
-                            title="Navigate to address"
-                          >
-                            <MapPin className="w-3.5 h-3.5 text-accent flex-shrink-0 group-hover:scale-110 transition-transform" />
-                            <span className="underline decoration-transparent group-hover:decoration-accent/40 underline-offset-4">{customer.address}</span>
-                          </button>
+                          <span className="flex items-center gap-1.5 line-clamp-1 break-all">
+                            <MapPin className="w-3.5 h-3.5 text-accent flex-shrink-0" />
+                            {customer.address}
+                          </span>
                           <span className="flex items-center gap-1.5 flex-shrink-0">
                             <Phone className="w-3.5 h-3.5 text-accent" />
                             {customer.phone}
@@ -1681,7 +1751,7 @@ export default function App() {
                   </div>
               ))}
               
-              {directoryFilteredCustomers.length === 0 && (
+              {customers.length === 0 && (
                 <div className="text-center py-24 bg-surface/30 rounded-sm border border-border border-dashed">
                   <Users className="w-12 h-12 text-border mx-auto mb-4" />
                   <p className="label-caps">Directory is empty</p>
@@ -1880,6 +1950,110 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Map Assistant Floating Button */}
+      <div className="fixed bottom-8 right-8 z-40 flex flex-col items-end gap-4 overflow-visible">
+        <AnimatePresence>
+          {isAssistantOpen && (
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="w-80 sm:w-96 h-[500px] bg-surface rounded-sm border border-border shadow-2xl flex flex-col overflow-hidden mb-4"
+            >
+              <div className="p-4 border-b border-border bg-bg flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 bg-accent/20 rounded-sm">
+                    <Sparkles className="w-4 h-4 text-accent" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-widest text-white">Map Assistant</h4>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                      <span className="text-[10px] text-emerald-500/70 font-bold uppercase tracking-tighter">AI Online</span>
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => setIsAssistantOpen(false)} className="text-text-secondary hover:text-white">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-[radial-gradient(circle_at_bottom_right,var(--color-bg)_0%,transparent_100%)]">
+                {assistantMessages.map((msg, idx) => (
+                  <div 
+                    key={idx} 
+                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div className={`max-w-[85%] p-3 rounded-sm text-sm leading-relaxed ${
+                      msg.role === 'user' 
+                        ? 'bg-accent text-bg font-medium' 
+                        : 'bg-bg/80 border border-border text-text-primary shadow-sm'
+                    }`}>
+                      {msg.content}
+                    </div>
+                  </div>
+                ))}
+                {isAssistantLoading && (
+                  <div className="flex justify-start">
+                    <div className="bg-bg/80 border border-border text-text-secondary p-3 rounded-sm flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin text-accent" />
+                      <span className="text-xs italic uppercase tracking-wider font-bold">Thinking...</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 border-t border-border bg-bg">
+                <form 
+                  onSubmit={(e) => { e.preventDefault(); handleAssistantSend(); }}
+                  className="flex gap-2"
+                >
+                  <input 
+                    type="text"
+                    value={assistantInput}
+                    onChange={(e) => setAssistantInput(e.target.value)}
+                    placeholder="Ask about your route..."
+                    className="flex-1 bg-surface border border-border rounded-sm px-4 py-2 text-sm text-white outline-none focus:border-accent/40 placeholder:text-text-secondary/50"
+                  />
+                  <button 
+                    type="submit"
+                    disabled={isAssistantLoading || !assistantInput.trim()}
+                    className="p-2 bg-accent text-bg rounded-sm hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:translate-y-0"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </form>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <button 
+          onClick={() => setIsAssistantOpen(!isAssistantOpen)}
+          className={`flex items-center gap-3 p-4 rounded-full shadow-2xl transition-all duration-300 group ${
+            isAssistantOpen 
+              ? 'bg-surface border border-border text-accent scale-90' 
+              : 'bg-accent text-bg hover:scale-110 active:scale-95'
+          }`}
+        >
+          <div className="relative">
+            <Sparkles className={`w-6 h-6 ${!isAssistantOpen && 'animate-pulse'}`} />
+            {!isAssistantOpen && (
+              <div className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full border-2 border-accent" />
+            )}
+          </div>
+          {!isAssistantOpen && (
+            <motion.span 
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="font-bold uppercase tracking-[0.2em] text-[10px] pr-2"
+            >
+              Map Assistant
+            </motion.span>
+          )}
+        </button>
+      </div>
 
       {/* Add Form Overlay */}
       <AnimatePresence>
