@@ -12,6 +12,11 @@
         "aglCount": { "type": "number", "description": "AGL count" },
         "notes": { "type": "string", "description": "Special instructions" },
         "appointmentTime": { "type": "string", "format": "date-time" },
+        "serviceType": { 
+          "type": "string", 
+          "description": "Primary service type",
+          "enum": ["Window Cleaning", "Gutter Cleaning", "Power Washing", "Solar Panel Cleaning", "Screen Repair", "Other"]
+        },
         "assignedTo": { "type": "string", "description": "Employee assigned to the job" },
         "createdBy": { "type": "string" },
         "calendarEventId": { "type": "string" },

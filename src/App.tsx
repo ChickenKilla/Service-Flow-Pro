@@ -96,6 +96,7 @@ interface Customer {
   aglCount: number;
   notes: string;
   appointmentTime: string;
+  serviceType?: string;
   assignedTo?: string;
   createdBy: string;
   calendarEventId?: string;
@@ -126,6 +127,8 @@ export default function App() {
   const [historySort, setHistorySort] = useState<'dateDesc' | 'dateAsc' | 'nameAsc'>('dateDesc');
   const [historyFilter, setHistoryFilter] = useState<'all' | 'active' | 'completed'>('all');
   const [historySearchQuery, setHistorySearchQuery] = useState('');
+  const [historyServiceFilter, setHistoryServiceFilter] = useState<string>('all');
+  const [historyDateFilter, setHistoryDateFilter] = useState<string>('');
   
   // Directory State
   const [directorySearchQuery, setDirectorySearchQuery] = useState('');
@@ -188,6 +191,7 @@ export default function App() {
     windowCount: '' as number | string,
     aglCount: '' as number | string,
     notes: '',
+    serviceType: 'Window Cleaning',
     assignedTo: 'Unassigned',
     apptDate: format(new Date(), 'yyyy-MM-dd'),
     apptHour: '',
@@ -329,6 +333,7 @@ export default function App() {
       windowCount: '',
       aglCount: '',
       notes: '',
+      serviceType: 'Window Cleaning',
       assignedTo: 'Unassigned',
       apptDate: format(new Date(), 'yyyy-MM-dd'),
       apptHour: '',
@@ -414,6 +419,7 @@ export default function App() {
       windowCount: customer.windowCount,
       aglCount: customer.aglCount,
       notes: customer.notes,
+      serviceType: customer.serviceType || 'Window Cleaning',
       assignedTo: customer.assignedTo || 'Unassigned',
       apptDate: format(d, 'yyyy-MM-dd'),
       apptHour: format(d, 'hh'),
@@ -521,6 +527,7 @@ export default function App() {
         windowCount: Number(formData.windowCount) || 0,
         aglCount: Number(formData.aglCount) || 0,
         notes: formData.notes,
+        serviceType: formData.serviceType,
         assignedTo: formData.assignedTo,
         appointmentTime: synthesizedAppointmentTime
       };
@@ -849,7 +856,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
           <div className="w-16 h-16 bg-accent rounded-full flex items-center justify-center mx-auto mb-8 shadow-[0_0_30px_rgba(197,160,89,0.3)]">
             <Layout className="text-black w-8 h-8" />
           </div>
-          <h1 className="text-3xl font-serif mb-4 tracking-wider text-white">APEX SERVICES</h1>
+          <h1 className="text-3xl font-serif mb-4 tracking-wider text-text-primary">APEX SERVICES</h1>
           <p className="text-text-secondary mb-10 text-sm leading-relaxed tracking-wide uppercase italic">
             Elite service management.
           </p>
@@ -1409,7 +1416,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
           <>
             <div className="flex items-center justify-between mb-8">
               <div>
-                <h2 className="text-3xl font-serif text-white mb-2">Job Archive</h2>
+                <h2 className="text-3xl font-serif text-text-primary mb-2">Job Archive</h2>
                 <p className="label-caps italic">Comprehensive history</p>
               </div>
             </div>
@@ -1423,19 +1430,19 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                     placeholder="Search history by name or address..."
                     value={historySearchQuery}
                     onChange={(e) => setHistorySearchQuery(e.target.value)}
-                    className="w-full bg-bg border border-border rounded-sm pl-10 pr-4 py-2.5 text-white outline-none focus:border-accent transition-all text-sm placeholder:text-text-secondary/50"
+                    className="w-full bg-bg border border-border rounded-sm pl-10 pr-4 py-2.5 text-text-primary outline-none focus:border-accent transition-all text-sm placeholder:text-text-secondary/50"
                   />
                 </div>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="flex-1">
                   <label className="label-caps block mb-2 text-xs">Filter Status</label>
                   <div className="relative">
                     <select 
                       value={historyFilter}
                       onChange={(e) => setHistoryFilter(e.target.value as any)}
-                      className="w-full appearance-none bg-bg border border-border rounded-sm px-4 py-2.5 text-white outline-none focus:border-accent text-sm"
+                      className="w-full appearance-none bg-bg border border-border rounded-sm px-4 py-2.5 text-text-primary outline-none focus:border-accent text-sm"
                     >
                       <option value="all">All Jobs</option>
                       <option value="active">Active Only</option>
@@ -1445,12 +1452,40 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                   </div>
                 </div>
                 <div className="flex-1">
+                  <label className="label-caps block mb-2 text-xs">Service Type</label>
+                  <div className="relative">
+                    <select 
+                      value={historyServiceFilter}
+                      onChange={(e) => setHistoryServiceFilter(e.target.value)}
+                      className="w-full appearance-none bg-bg border border-border rounded-sm px-4 py-2.5 text-text-primary outline-none focus:border-accent text-sm"
+                    >
+                      <option value="all">All Services</option>
+                      <option value="Window Cleaning">Window Cleaning</option>
+                      <option value="Gutter Cleaning">Gutter Cleaning</option>
+                      <option value="Power Washing">Power Washing</option>
+                      <option value="Solar Panel Cleaning">Solar Panel Cleaning</option>
+                      <option value="Screen Repair">Screen Repair</option>
+                      <option value="Other">Other</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary pointer-events-none" />
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <label className="label-caps block mb-2 text-xs">Filter Date</label>
+                  <input 
+                    type="date"
+                    value={historyDateFilter}
+                    onChange={(e) => setHistoryDateFilter(e.target.value)}
+                    className="w-full bg-bg border border-border rounded-sm px-4 py-2 text-text-primary outline-none focus:border-accent text-sm h-[42px]"
+                  />
+                </div>
+                <div className="flex-1">
                   <label className="label-caps block mb-2 text-xs">Sort Order</label>
                   <div className="relative">
                     <select 
                       value={historySort}
                       onChange={(e) => setHistorySort(e.target.value as any)}
-                      className="w-full appearance-none bg-bg border border-border rounded-sm px-4 py-2.5 text-white outline-none focus:border-accent text-sm"
+                      className="w-full appearance-none bg-bg border border-border rounded-sm px-4 py-2.5 text-text-primary outline-none focus:border-accent text-sm"
                     >
                       <option value="dateDesc">Newest First</option>
                       <option value="dateAsc">Oldest First</option>
@@ -1476,12 +1511,24 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                 .filter(c => {
                   if (historySearchQuery) {
                     const q = historySearchQuery.toLowerCase();
-                    if (!c.name.toLowerCase().includes(q) && !c.address.toLowerCase().includes(q)) {
+                    if (!c.name.toLowerCase().includes(q) && 
+                        !c.address.toLowerCase().includes(q) && 
+                        !c.phone.toLowerCase().includes(q)) {
                       return false;
                     }
                   }
-                  if (historyFilter === 'active') return !c.completed;
-                  if (historyFilter === 'completed') return c.completed;
+                  if (historyFilter === 'active') {
+                    if (c.completed) return false;
+                  }
+                  if (historyFilter === 'completed') {
+                    if (!c.completed) return false;
+                  }
+                  if (historyServiceFilter !== 'all') {
+                    if (c.serviceType !== historyServiceFilter) return false;
+                  }
+                  if (historyDateFilter) {
+                    if (!c.appointmentTime.startsWith(historyDateFilter)) return false;
+                  }
                   return true;
                 })
                 .sort((a, b) => {
@@ -1493,9 +1540,14 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                 .map(customer => (
                   <div key={customer.id} className={`luxury-card p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${customer.completed ? 'opacity-60' : ''}`}>
                     <div>
-                      <h4 className="text-lg font-serif text-white">{customer.name}</h4>
+                      <h4 className="text-lg font-serif text-text-primary">{customer.name}</h4>
                       <div className="flex items-center gap-3">
                         <p className="text-sm text-text-secondary mt-1">{format(new Date(customer.appointmentTime), 'MMM dd, yyyy h:mm a')}</p>
+                        {customer.serviceType && (
+                          <span className="text-[10px] text-accent border border-accent/30 bg-accent/10 px-2 py-0.5 rounded-sm font-bold uppercase tracking-widest mt-1">
+                            {customer.serviceType}
+                          </span>
+                        )}
                         {customer.assignedTo && customer.assignedTo !== 'Unassigned' && (
                           <span className="text-[10px] text-accent border border-accent/30 bg-accent/10 px-2 py-0.5 rounded-sm font-bold uppercase tracking-widest mt-1">
                             {customer.assignedTo}
@@ -1593,7 +1645,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
           <>
             <div className="flex flex-col sm:flex-row items-center justify-between mb-8 gap-4">
               <div className="w-full sm:w-auto">
-                <h2 className="text-3xl font-serif text-white mb-2">Customer Directory</h2>
+                <h2 className="text-3xl font-serif text-text-primary mb-2">Customer Directory</h2>
                 <p className="label-caps italic">All known clients & prospects</p>
               </div>
               <div className="w-full sm:w-auto flex flex-col sm:flex-row gap-4">
@@ -1604,7 +1656,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                     placeholder="Search by name, address..."
                     value={directorySearchQuery}
                     onChange={(e) => setDirectorySearchQuery(e.target.value)}
-                    className="w-full bg-surface border border-border rounded-sm pl-10 pr-4 py-2.5 text-white outline-none focus:border-accent transition-all text-sm placeholder:text-text-secondary/50"
+                    className="w-full bg-surface border border-border rounded-sm pl-10 pr-4 py-2.5 text-text-primary outline-none focus:border-accent transition-all text-sm placeholder:text-text-secondary/50"
                   />
                 </div>
                 {!hasImported && (
@@ -1633,10 +1685,13 @@ If asked about a route, suggest a logical order based on the addresses and appoi
 
             <div className="space-y-4">
               {customers
-                .filter(c => directorySearchQuery 
-                  ? (c.name.toLowerCase().includes(directorySearchQuery.toLowerCase()) || c.address.toLowerCase().includes(directorySearchQuery.toLowerCase()))
-                  : true
-                )
+                .filter(c => {
+                  if (!directorySearchQuery) return true;
+                  const q = directorySearchQuery.toLowerCase();
+                  return c.name.toLowerCase().includes(q) || 
+                         c.address.toLowerCase().includes(q) || 
+                         c.phone.toLowerCase().includes(q);
+                })
                 .sort((a, b) => a.name.localeCompare(b.name)) /* Simple alphabetical sort */
                 .map((customer) => (
                   <div key={`dir-${customer.id}`} className="bg-bg border border-border p-5 rounded-sm hover:border-accent/40 transition-colors">
@@ -1645,11 +1700,16 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                       {/* Name & Basic Info */}
                       <div className="flex flex-col flex-1">
                         <div className="flex items-start gap-3 mb-2">
-                          <h4 className="text-lg font-serif text-white tracking-wide">{customer.name}</h4>
+                          <h4 className="text-lg font-serif text-text-primary tracking-wide">{customer.name}</h4>
                           {customer.completed ? (
                             <span className="px-2 py-0.5 bg-emerald-950/30 border border-emerald-900/50 text-emerald-500 text-[9px] uppercase tracking-widest font-bold rounded-sm mt-1">Completed</span>
                           ) : (
                             <span className="px-2 py-0.5 bg-amber-950/30 border border-amber-900/50 text-amber-500 text-[9px] uppercase tracking-widest font-bold rounded-sm mt-1">Active</span>
+                          )}
+                          {customer.serviceType && (
+                            <span className="px-2 py-0.5 bg-accent/20 border border-accent/30 text-accent text-[9px] uppercase tracking-widest font-bold rounded-sm mt-1">
+                              {customer.serviceType}
+                            </span>
                           )}
                           {customer.assignedTo && customer.assignedTo !== 'Unassigned' && (
                             <span className="px-2 py-0.5 bg-surface border border-border text-text-secondary text-[9px] uppercase tracking-widest font-bold rounded-sm mt-1">
@@ -1677,12 +1737,12 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                         <div className="flex items-center gap-3 bg-surface px-4 py-2 rounded-sm border border-border self-start sm:self-center">
                           <div className="text-center px-2">
                             <p className="text-[9px] text-text-secondary uppercase tracking-widest mb-0.5">Win</p>
-                            <p className="font-serif text-white italic">{customer.windowCount}</p>
+                            <p className="font-serif text-text-primary italic">{customer.windowCount}</p>
                           </div>
                           <div className="w-px h-6 bg-border" />
                           <div className="text-center px-2">
                             <p className="text-[9px] text-text-secondary uppercase tracking-widest mb-0.5">AGL</p>
-                            <p className="font-serif text-white italic">{customer.aglCount}</p>
+                            <p className="font-serif text-text-primary italic">{customer.aglCount}</p>
                           </div>
                           {customer.mileageAttributed && (
                             <>
@@ -1764,7 +1824,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
         {currentRoute === 'help' && (
           <div className="max-w-xl mx-auto space-y-12 pb-16">
             <div>
-              <h2 className="text-3xl font-serif text-white mb-2">Training Manual</h2>
+              <h2 className="text-3xl font-serif text-text-primary mb-2">Training Manual</h2>
               <p className="label-caps italic">Interactive App Guide</p>
             </div>
 
@@ -1778,7 +1838,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                 {/* Mock Card Header */}
                 <div className="flex justify-between items-start mb-6">
                   <div>
-                    <h3 className="text-xl font-serif text-white tracking-wide mb-3">John Doe</h3>
+                    <h3 className="text-xl font-serif text-text-primary tracking-wide mb-3">John Doe</h3>
                     <div className="flex gap-4 text-text-secondary text-sm">
                         <span className="flex items-center gap-1 label-caps"><Clock className="w-3" /> 9:00 AM</span>
                     </div>
@@ -1843,9 +1903,9 @@ If asked about a route, suggest a logical order based on the addresses and appoi
               <h3 className="text-xl font-serif text-accent pb-2 border-b border-border">2. Mileage Tracker Rules</h3>
               <ul className="space-y-6 text-sm text-text-secondary leading-relaxed">
                   <li className="flex gap-4">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center font-serif text-white">1</div>
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center font-serif text-text-primary">1</div>
                     <div>
-                      <strong className="text-white block mb-1">Start Route</strong>
+                      <strong className="text-text-primary block mb-1">Start Route</strong>
                       Hit the green "Start Route" button at the very top of your dashboard. Enter your starting truck odometer. Do this before your first drive.
                     </div>
                   </li>
@@ -1857,9 +1917,9 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                     </div>
                   </li>
                   <li className="flex gap-4">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center font-serif text-white">3</div>
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-surface border border-border flex items-center justify-center font-serif text-text-primary">3</div>
                     <div>
-                      <strong className="text-white block mb-1">Next Job</strong>
+                      <strong className="text-text-primary block mb-1">Next Job</strong>
                       Drive to your next job. When you park, tap the next client's <em>"ARR ODO"</em> button. It will calculate the mileage between the last stop and this one, tagging the cost to this new client.
                     </div>
                   </li>
@@ -1892,12 +1952,12 @@ If asked about a route, suggest a logical order based on the addresses and appoi
         {currentRoute === 'team' && (
           <div className="max-w-xl mx-auto pb-16">
             <div className="mb-10">
-              <h2 className="text-3xl font-serif text-white mb-2">Team Management</h2>
+              <h2 className="text-3xl font-serif text-text-primary mb-2">Team Management</h2>
               <p className="text-sm text-text-secondary">Manage the employees and teams available for job assignments.</p>
             </div>
 
             <div className="luxury-card p-8 mb-10">
-              <h3 className="text-lg font-serif text-white tracking-wide mb-6">Add Team Member</h3>
+              <h3 className="text-lg font-serif text-text-primary tracking-wide mb-6">Add Team Member</h3>
               <form onSubmit={handleAddEmployee} className="flex gap-4">
                 <input 
                   type="text"
@@ -1918,7 +1978,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
             </div>
 
             <div className="space-y-4">
-              <h3 className="text-lg font-serif text-white tracking-wide mb-6 border-b border-border pb-2">Active Team Directory</h3>
+              <h3 className="text-lg font-serif text-text-primary tracking-wide mb-6 border-b border-border pb-2">Active Team Directory</h3>
               {employees.length === 0 ? (
                 <div className="text-center py-16 bg-surface/30 rounded-sm border border-border border-dashed">
                   <UserIcon className="w-8 h-8 text-border mx-auto mb-3" />
@@ -1934,7 +1994,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                       <div className="w-8 h-8 rounded-full bg-accent/10 border border-accent/20 flex flex-shrink-0 items-center justify-center text-accent">
                         <Users className="w-4 h-4" />
                       </div>
-                      <span className="font-serif text-white text-lg">{emp.name}</span>
+                      <span className="font-serif text-text-primary text-lg">{emp.name}</span>
                     </div>
                     <button 
                       onClick={() => handleDeleteEmployee(emp.id, emp.name)}
@@ -1967,7 +2027,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                     <Sparkles className="w-4 h-4 text-accent" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold uppercase tracking-widest text-white">Map Assistant</h4>
+                    <h4 className="text-xs font-bold uppercase tracking-widest text-text-primary">Map Assistant</h4>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
                       <span className="text-[10px] text-emerald-500/70 font-bold uppercase tracking-tighter">AI Online</span>
@@ -2014,7 +2074,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                     value={assistantInput}
                     onChange={(e) => setAssistantInput(e.target.value)}
                     placeholder="Ask about your route..."
-                    className="flex-1 bg-surface border border-border rounded-sm px-4 py-2 text-sm text-white outline-none focus:border-accent/40 placeholder:text-text-secondary/50"
+                    className="flex-1 bg-surface border border-border rounded-sm px-4 py-2 text-sm text-text-primary outline-none focus:border-accent/40 placeholder:text-text-secondary/50"
                   />
                   <button 
                     type="submit"
@@ -2074,7 +2134,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
               className="relative w-full max-w-2xl bg-bg border-t sm:border border-border p-10 sm:rounded-sm overflow-y-auto max-h-[95vh] shadow-[0_-20px_50px_rgba(0,0,0,0.5)]"
             >
               <div className="flex items-center justify-between mb-10 border-b border-border pb-6">
-                <h3 className="text-2xl font-serif text-white tracking-wider uppercase">
+                <h3 className="text-2xl font-serif text-text-primary tracking-wider uppercase">
                   {editingId ? 'Edit Intake' : 'New Intake'}
                 </h3>
                 <button onClick={() => setShowAddForm(false)} className="p-3 bg-surface border border-border rounded-full text-text-secondary hover:text-white transition-colors">
@@ -2126,7 +2186,27 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                       placeholder="452 Oakwood Drive, Austin, TX"
                     />
                   </div>
-                  <div className="sm:col-span-2">
+                  <div className="field-group">
+                    <label className="label-caps block mb-3">Service Type</label>
+                    <div className="relative">
+                      <select
+                        className="input-luxury w-full appearance-none pr-10"
+                        value={formData.serviceType}
+                        onChange={e => setFormData({...formData, serviceType: e.target.value})}
+                      >
+                        <option value="Window Cleaning">Window Cleaning</option>
+                        <option value="Gutter Cleaning">Gutter Cleaning</option>
+                        <option value="Power Washing">Power Washing</option>
+                        <option value="Solar Panel Cleaning">Solar Panel Cleaning</option>
+                        <option value="Screen Repair">Screen Repair</option>
+                        <option value="Other">Other</option>
+                      </select>
+                      <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-text-secondary">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="field-group">
                     <label className="label-caps block mb-3">Assigned Employee</label>
                     <div className="relative">
                       <select
@@ -2150,7 +2230,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                       <input 
                         type="number"
                         placeholder="0"
-                        className="bg-transparent text-center text-xl font-serif text-white outline-none placeholder:text-text-secondary/30"
+                        className="bg-transparent text-center text-xl font-serif text-text-primary outline-none placeholder:text-text-secondary/30"
                         value={formData.windowCount}
                         onChange={e => {
                           const val = e.target.value;
@@ -2163,7 +2243,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                       <input 
                         type="number"
                         placeholder="0"
-                        className="bg-transparent text-center text-xl font-serif text-white outline-none placeholder:text-text-secondary/30"
+                        className="bg-transparent text-center text-xl font-serif text-text-primary outline-none placeholder:text-text-secondary/30"
                         value={formData.aglCount}
                         onChange={e => {
                           const val = e.target.value;
@@ -2179,7 +2259,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                       <input 
                         type="date"
                         required
-                        className="input-luxury flex-1 [color-scheme:dark]"
+                        className="input-luxury flex-1"
                         value={formData.apptDate}
                         onChange={e => setFormData({...formData, apptDate: e.target.value})}
                       />
@@ -2190,7 +2270,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                              type="text"
                              maxLength={2}
                              placeholder="00"
-                             className="w-8 text-center bg-transparent text-white outline-none font-serif placeholder:text-text-secondary/30 focus:text-accent"
+                             className="w-8 text-center bg-transparent text-text-primary outline-none font-serif placeholder:text-text-secondary/30 focus:text-accent"
                              value={formData.apptHour}
                              onChange={e => setFormData({...formData, apptHour: e.target.value.replace(/[^0-9]/g, '')})}
                           />
@@ -2199,7 +2279,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                              type="text"
                              maxLength={2}
                              placeholder="00"
-                             className="w-8 text-center bg-transparent text-white outline-none font-serif placeholder:text-text-secondary/30 focus:text-accent"
+                             className="w-8 text-center bg-transparent text-text-primary outline-none font-serif placeholder:text-text-secondary/30 focus:text-accent"
                              value={formData.apptMinute}
                              onChange={e => setFormData({...formData, apptMinute: e.target.value.replace(/[^0-9]/g, '')})}
                           />
@@ -2280,7 +2360,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
             >
               <div className="flex items-center justify-between mb-8 pb-4 border-b border-border">
                 <div>
-                  <h3 className="text-2xl font-serif text-white tracking-wider uppercase">Service Log</h3>
+                  <h3 className="text-2xl font-serif text-text-primary tracking-wider uppercase">Service Log</h3>
                   <p className="text-sm text-text-secondary mt-1">{activeHistoryCustomer.name}</p>
                 </div>
                 <button onClick={() => setHistoryModalCustomerId(null)} className="p-3 bg-surface border border-border rounded-full text-text-secondary hover:text-white transition-colors">
@@ -2290,7 +2370,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
               
               {/* Form to add new log */}
               <form onSubmit={handleLogSubmit} className="mb-10 bg-surface p-6 border border-border rounded-sm">
-                <h4 className="label-caps mb-4 text-white">Add New Record</h4>
+                <h4 className="label-caps mb-4 text-text-primary">Add New Record</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="label-caps block mb-2">Service Date</label>
@@ -2299,7 +2379,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                       required 
                       value={logFormData.date} 
                       onChange={e => setLogFormData({...logFormData, date: e.target.value})} 
-                      className="w-full bg-bg border border-border rounded-sm px-4 py-2.5 text-white outline-none focus:border-accent transition-all text-sm" 
+                      className="w-full bg-bg border border-border rounded-sm px-4 py-2.5 text-text-primary outline-none focus:border-accent transition-all text-sm" 
                     />
                   </div>
                   <div>
@@ -2310,7 +2390,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                       placeholder="e.g. Window Cleaning" 
                       value={logFormData.type} 
                       onChange={e => setLogFormData({...logFormData, type: e.target.value})} 
-                      className="w-full bg-bg border border-border rounded-sm px-4 py-2.5 text-white outline-none focus:border-accent transition-all text-sm placeholder:text-text-secondary/50" 
+                      className="w-full bg-bg border border-border rounded-sm px-4 py-2.5 text-text-primary outline-none focus:border-accent transition-all text-sm placeholder:text-text-secondary/50" 
                     />
                   </div>
                 </div>
@@ -2321,7 +2401,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                     placeholder="Job details, chemical mixtures used, client feedback..." 
                     value={logFormData.notes} 
                     onChange={e => setLogFormData({...logFormData, notes: e.target.value})} 
-                    className="w-full bg-bg border border-border rounded-sm px-4 py-3 text-white outline-none focus:border-accent transition-all text-sm resize-none placeholder:text-text-secondary/50" 
+                    className="w-full bg-bg border border-border rounded-sm px-4 py-3 text-text-primary outline-none focus:border-accent transition-all text-sm resize-none placeholder:text-text-secondary/50" 
                   />
                 </div>
                 <button type="submit" className="w-full btn-luxury-primary py-3 flex justify-center gap-2 items-center">
@@ -2338,7 +2418,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                 {activeHistoryCustomer.serviceLogs?.map(log => (
                   <div key={log.id} className="p-5 bg-surface border border-border rounded-sm hover:-translate-y-0.5 transition-transform duration-300">
                     <div className="flex justify-between items-start mb-3">
-                      <span className="font-serif text-lg text-white">{log.type}</span>
+                      <span className="font-serif text-lg text-text-primary">{log.type}</span>
                       <span className="text-xs font-bold tracking-widest text-text-secondary px-2 py-1 bg-bg rounded-sm border border-border">
                         {format(new Date(log.date + 'T12:00:00'), 'MMM dd, yyyy')}
                       </span>
@@ -2381,9 +2461,9 @@ If asked about a route, suggest a logical order based on the addresses and appoi
               transition={{ type: "spring", damping: 30, stiffness: 300 }}
               className="relative w-full max-w-md bg-bg border-t sm:border border-border p-10 sm:rounded-sm shadow-[0_-20px_50px_rgba(0,0,0,0.5)]"
             >
-              <h3 className="text-2xl font-serif text-white tracking-wider uppercase mb-8 pb-4 border-b border-border">Print Day Schedule</h3>
+              <h3 className="text-2xl font-serif text-text-primary tracking-wider uppercase mb-8 pb-4 border-b border-border">Print Day Schedule</h3>
               <div className="mb-8">
-                <label className="label-caps block mb-3 text-white">Select Print Target Date</label>
+                <label className="label-caps block mb-3 text-text-primary">Select Print Target Date</label>
                 <input 
                   type="date"
                   required
@@ -2432,7 +2512,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
               exit={{ y: 50, opacity: 0 }}
               className="relative w-full max-w-sm bg-bg border border-border p-8 rounded-sm shadow-[0_0_50px_rgba(0,0,0,0.5)]"
             >
-              <h3 className="text-xl font-serif text-white tracking-wider uppercase mb-6 text-center">
+              <h3 className="text-xl font-serif text-text-primary tracking-wider uppercase mb-6 text-center">
                 {showRouteModal === 'start' ? 'Start Shift' : 'End Shift'}
               </h3>
               <form onSubmit={showRouteModal === 'start' ? handleStartRoute : handleEndRoute}>
@@ -2443,7 +2523,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                     required
                     value={odometerInput}
                     onChange={e => setOdometerInput(e.target.value)}
-                    className="w-full bg-surface border border-border rounded-sm px-4 py-4 text-white outline-none focus:border-accent text-3xl font-serif text-center"
+                    className="w-full bg-surface border border-border rounded-sm px-4 py-4 text-text-primary outline-none focus:border-accent text-3xl font-serif text-center"
                     placeholder="124500"
                   />
                   {showRouteModal === 'end' && activeRoute && (
@@ -2478,7 +2558,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
               exit={{ y: 50, opacity: 0 }}
               className="relative w-full max-w-sm bg-bg border border-border p-8 rounded-sm shadow-[0_0_50px_rgba(0,0,0,0.5)]"
             >
-              <h3 className="text-xl font-serif text-white tracking-wider uppercase mb-6 text-center">Arrival Odometer</h3>
+              <h3 className="text-xl font-serif text-text-primary tracking-wider uppercase mb-6 text-center">Arrival Odometer</h3>
               <form onSubmit={calculateJobMileage}>
                 <div className="mb-6 text-center">
                   <label className="label-caps block mb-4 text-text-secondary">Tag Cost of Service</label>
@@ -2487,7 +2567,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                     required
                     value={odometerInput}
                     onChange={e => setOdometerInput(e.target.value)}
-                    className="w-full bg-surface border border-border rounded-sm px-4 py-4 text-white outline-none focus:border-emerald-500/50 text-3xl font-serif text-center"
+                    className="w-full bg-surface border border-border rounded-sm px-4 py-4 text-text-primary outline-none focus:border-emerald-500/50 text-3xl font-serif text-center"
                     placeholder="124510"
                   />
                   {activeRoute && (
