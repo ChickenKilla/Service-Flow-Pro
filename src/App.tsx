@@ -816,9 +816,11 @@ Provide concise, helpful, and professional advice. Focus on efficiency and custo
 If asked about a route, suggest a logical order based on the addresses and appointment times provided.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.5-flash",
         contents: [
-          ...assistantMessages.map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.content }] })),
+          ...assistantMessages
+            .filter((m, idx) => !(idx === 0 && m.role === 'assistant'))
+            .map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.content }] })),
           { role: 'user', parts: [{ text: userMessage }] }
         ],
         config: {
@@ -829,9 +831,9 @@ If asked about a route, suggest a logical order based on the addresses and appoi
 
       const assistantContent = response.text || "I'm sorry, I couldn't process that request at the moment.";
       setAssistantMessages(prev => [...prev, { role: 'assistant', content: assistantContent }]);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Gemini Assistant Error:", err);
-      setAssistantMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I'm having trouble connecting right now. Please try again in a moment." }]);
+      setAssistantMessages(prev => [...prev, { role: 'assistant', content: "Connection Error: " + (err.message || String(err)) }]);
     } finally {
       setIsAssistantLoading(false);
     }
@@ -1382,16 +1384,56 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                         </div>
                       </div>
 
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
                         <button 
                           onClick={() => handleToggleComplete(customer)}
                           className="flex-1 bg-surface border border-border text-text-secondary hover:bg-accent hover:text-white hover:border-accent text-[10px] uppercase font-bold tracking-widest py-2 rounded-sm transition-all shadow-sm"
                         >
                           Complete
                         </button>
+
+                        {deletingId === customer.id ? (
+                          <div className="flex items-center gap-1 bg-red-950/40 border border-red-900/50 rounded-sm p-0.5">
+                            <button 
+                              onClick={() => handleDeleteClient(customer.id)}
+                              className="px-2 py-1 text-[10px] font-bold text-red-500 hover:text-white uppercase tracking-widest transition-colors flex items-center justify-center"
+                            >
+                              Confirm
+                            </button>
+                            <button 
+                              onClick={() => setDeletingId(null)}
+                              className="p-1 text-text-secondary hover:text-white flex items-center justify-center"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button 
+                            onClick={() => setDeletingId(customer.id)}
+                            className="px-2.5 bg-bg border border-border text-red-500/50 hover:text-red-500 hover:border-red-500/40 rounded-sm transition-all flex items-center justify-center"
+                            title="Delete Customer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <button 
+                          onClick={() => handleEditClick(customer)}
+                          className="px-2.5 bg-bg border border-border text-text-secondary hover:text-accent hover:border-accent/40 rounded-sm transition-all flex items-center justify-center"
+                          title="Edit Customer"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        
+                        <a 
+                          href={`tel:${customer.phone}`}
+                          className="px-3 bg-bg border border-accent/30 text-accent hover:bg-accent hover:text-white hover:border-accent uppercase tracking-widest font-bold text-[10px] rounded-sm transition-all flex items-center justify-center shadow-sm"
+                          title="Call Customer"
+                        >
+                          <Phone className="w-4 h-4" />
+                        </a>
                         <button 
                           onClick={() => openInMaps(customer.address)}
-                          className="px-3 bg-bg border border-border text-text-secondary hover:text-text-primary uppercase tracking-widest font-bold text-[10px] rounded-sm transition-all"
+                          className="px-3 bg-bg border border-border text-text-secondary hover:text-text-primary uppercase tracking-widest font-bold text-[10px] rounded-sm transition-all flex items-center justify-center"
                           title="Open Maps"
                         >
                           <Navigation className="w-4 h-4" />
@@ -1756,10 +1798,17 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                         </div>
 
                         {/* Actions */}
-                      <div className="flex items-center gap-2 self-start sm:self-center">
-                        <div className="flex items-center gap-1.5 border border-border bg-surface p-1 rounded-sm">
+                      <div className="flex flex-col sm:flex-row items-center gap-2 self-stretch sm:self-center">
+                        <a 
+                          href={`tel:${customer.phone}`}
+                          className="flex items-center justify-center gap-2 px-4 py-2 h-10 bg-bg border border-accent/30 text-accent hover:bg-accent hover:text-white hover:border-accent uppercase tracking-widest font-bold text-[10px] rounded-sm transition-all shadow-sm w-full sm:w-auto"
+                          title="Call Customer"
+                        >
+                          <Phone className="w-4 h-4" /> Call
+                        </a>
+                        <div className="flex items-center justify-center gap-1.5 border border-border bg-surface p-1 rounded-sm w-full sm:w-auto h-10">
                           {deletingId === customer.id ? (
-                            <div className="flex items-center gap-1 h-8">
+                            <div className="flex items-center gap-1 h-full">
                               <button 
                                 onClick={() => handleDeleteClient(customer.id)}
                                 className="px-2 text-[10px] font-bold text-red-500 hover:text-white uppercase tracking-widest transition-colors h-full"
@@ -1776,7 +1825,7 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                           ) : (
                             <button 
                               onClick={() => setDeletingId(customer.id)}
-                              className="p-1.5 text-red-500/50 hover:text-red-500 hover:bg-bg rounded-sm transition-all h-8 w-8 flex items-center justify-center cursor-pointer"
+                              className="p-1.5 text-red-500/50 hover:text-red-500 hover:bg-bg rounded-sm transition-all h-full w-8 flex items-center justify-center cursor-pointer"
                               title="Delete Customer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -1785,21 +1834,14 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                           <div className="w-px h-4 bg-border mx-1" />
                           <button 
                             onClick={() => handleEditClick(customer)}
-                            className="p-1.5 text-text-secondary hover:text-accent hover:bg-bg rounded-sm transition-all h-8 w-8 flex items-center justify-center cursor-pointer"
+                            className="p-1.5 text-text-secondary hover:text-accent hover:bg-bg rounded-sm transition-all h-full w-8 flex items-center justify-center cursor-pointer"
                             title="Edit Customer"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
-                          <a 
-                            href={`tel:${customer.phone}`}
-                            className="p-1.5 text-text-secondary hover:text-accent hover:bg-bg rounded-sm transition-all h-8 w-8 flex items-center justify-center cursor-pointer"
-                            title="Call Customer"
-                          >
-                            <Phone className="w-3.5 h-3.5" />
-                          </a>
                           <button 
                             onClick={() => setHistoryModalCustomerId(customer.id)}
-                            className="p-1.5 text-text-secondary hover:text-accent hover:bg-bg rounded-sm transition-all h-8 w-8 flex items-center justify-center cursor-pointer"
+                            className="p-1.5 text-text-secondary hover:text-accent hover:bg-bg rounded-sm transition-all h-full w-8 flex items-center justify-center cursor-pointer"
                             title="View/Add Service Logs"
                           >
                             <ClipboardList className="w-3.5 h-3.5" />
