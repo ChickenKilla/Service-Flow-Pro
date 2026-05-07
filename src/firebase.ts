@@ -2,6 +2,8 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { 
   getFirestore, 
+  initializeFirestore,
+  CACHE_SIZE_UNLIMITED,
   collection, 
   addDoc, 
   onSnapshot, 
@@ -17,9 +19,13 @@ import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
-// Enable offline persistence
+// Initialize Firestore with explicit cache settings for better offline speed
+export const db = initializeFirestore(app, {
+  cacheSizeBytes: CACHE_SIZE_UNLIMITED,
+}, firebaseConfig.firestoreDatabaseId);
+
+// Enable offline persistence with aggressive synchronization
 enableMultiTabIndexedDbPersistence(db).catch((err) => {
   if (err.code === 'failed-precondition') {
     console.warn('Multiple tabs open, offline persistence can only be enabled in one tab at a time.');

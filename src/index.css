@@ -1,48 +1,38 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 :root {
-  --theme-bg: #f8f8f8;
-  --theme-surface: #ffffff;
-  --theme-border: #e2e2e2;
-  --theme-accent: #b38a4d;
-  --theme-text-primary: #111111;
-  --theme-text-secondary: #555555;
-  --theme-font-heading: "Playfair Display", serif;
-  --theme-radius: 0.125rem;
-}
-
-:root[data-theme="dark"] {
-  --theme-bg: #0a0a0a;
-  --theme-surface: #141414;
-  --theme-border: #2a2a2a;
-  --theme-accent: #c5a059;
-  --theme-text-primary: #e0e0e0;
-  --theme-text-secondary: #888888;
-  --theme-font-heading: "Playfair Display", serif;
-  --theme-radius: 0.125rem;
-}
-
-:root[data-theme="midnight"] {
-  --theme-bg: #0b1120;
-  --theme-surface: #1e293b;
-  --theme-border: #334155;
-  --theme-accent: #3b82f6; /* Blue 500 */
+  /* Default to dark-grey/orange */
+  --theme-bg: #1a1a1a;
+  --theme-surface: #262626;
+  --theme-border: #3f3f46;
+  --theme-accent: #f97316; /* Orange 500 */
   --theme-text-primary: #f8fafc;
-  --theme-text-secondary: #94a3b8;
+  --theme-text-secondary: #a1a1aa;
   --theme-font-heading: "Space Grotesk", sans-serif;
   --theme-radius: 0.75rem;
 }
 
-:root[data-theme="forest"] {
-  --theme-bg: #0c1712;
-  --theme-surface: #172a21;
-  --theme-border: #2b4a3a;
-  --theme-accent: #10b981; /* Emerald 500 */
-  --theme-text-primary: #ecfdf5;
-  --theme-text-secondary: #6ee7b7;
+:root[data-theme="dark"] {
+  --theme-bg: #121212;
+  --theme-surface: #1e1e1e;
+  --theme-border: #333333;
+  --theme-accent: #ea580c; /* Orange 600 */
+  --theme-text-primary: #ffffff;
+  --theme-text-secondary: #a3a3a3;
   --theme-font-heading: "Space Grotesk", sans-serif;
-  --theme-radius: 0.5rem;
+  --theme-radius: 0.75rem;
+}
+
+:root[data-theme="light"] {
+  --theme-bg: #f8fafc;
+  --theme-surface: #ffffff;
+  --theme-border: #e2e8f0;
+  --theme-accent: #f97316; /* Orange 500 */
+  --theme-text-primary: #0f172a;
+  --theme-text-secondary: #64748b;
+  --theme-font-heading: "Space Grotesk", sans-serif;
+  --theme-radius: 0.75rem;
 }
 
 @theme {
@@ -60,16 +50,24 @@
 @layer base {
   body {
     @apply bg-bg text-text-primary font-sans antialiased;
+    /* Adjust for mobile bottom-nav safe area */
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+}
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 20px);
   }
 }
 
 .luxury-card {
-  @apply bg-surface border border-border shadow-2xl;
+  @apply bg-surface border border-border shadow-lg;
   border-radius: var(--theme-radius);
 }
 
 .label-caps {
-  @apply text-[10px] uppercase tracking-[0.15em] font-semibold text-text-secondary;
+  @apply text-[10px] uppercase tracking-[0.15em] font-bold text-text-secondary;
 }
 
 .input-luxury {
@@ -78,11 +76,21 @@
 }
 
 .btn-luxury-primary {
-  @apply bg-accent text-white font-bold py-4 px-6 uppercase tracking-[0.2em] text-[11px] active:scale-95 transition-all;
+  @apply bg-accent text-white font-bold py-4 px-6 uppercase tracking-[0.15em] text-[12px] active:scale-95 transition-all w-full flex items-center justify-center;
   border-radius: var(--theme-radius);
+  box-shadow: 0 4px 14px 0 rgba(249, 115, 22, 0.39);
 }
 
 .btn-luxury-outline {
-  @apply bg-transparent border border-border text-text-primary font-bold py-4 px-6 uppercase tracking-[0.2em] text-[11px] active:scale-95 transition-all hover:bg-black/5 dark:hover:bg-white/5;
+  @apply bg-transparent border border-border text-text-primary font-bold py-4 px-6 uppercase tracking-[0.15em] text-[12px] active:scale-95 transition-all hover:bg-black/5 dark:hover:bg-white/5;
   border-radius: var(--theme-radius);
+}
+
+/* Mobile-first specific utility */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

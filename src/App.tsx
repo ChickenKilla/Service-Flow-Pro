@@ -49,9 +49,13 @@ import {
   MessageSquare,
   Sparkles,
   Send,
-  Loader2
+  Loader2,
+  Camera,
+  Mic,
+  Image as ImageIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { GeminiLiveVoice } from './components/GeminiLiveVoice';
 import { GoogleGenAI } from "@google/genai";
 import { 
   format, 
@@ -104,6 +108,7 @@ interface Customer {
   completed?: boolean;
   mileageAttributed?: number;
   serviceLogs?: ServiceLog[];
+  photos?: string[];
   createdAt: any;
 }
 
@@ -170,8 +175,8 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   // Theme State
-  const [theme, setTheme] = useState<'dark' | 'light' | 'midnight' | 'forest'>(() => {
-    return (localStorage.getItem('apex_theme') as 'dark' | 'light' | 'midnight' | 'forest') || 'dark';
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    return (localStorage.getItem('apex_theme') as 'dark' | 'light') || 'dark';
   });
 
   // Calendar Dashboard State
@@ -448,6 +453,128 @@ export default function App() {
       setLogFormData({ date: format(new Date(), 'yyyy-MM-dd'), type: '', notes: '' });
     } catch (err) {
       console.error('Error adding service log', err);
+    }
+  };
+
+  const [isPhotoUploading, setIsPhotoUploading] = useState(false);
+
+  const handleDeletePhoto = async (photoIndex: number) => {
+    if (!activeHistoryCustomer) return;
+    if (!confirm('Are you sure you want to delete this photo?')) return;
+
+    try {
+      const updatedPhotos = [...(activeHistoryCustomer.photos || [])];
+      updatedPhotos.splice(photoIndex, 1);
+      
+      await updateDoc(doc(db, 'customers', activeHistoryCustomer.id), {
+        photos: updatedPhotos,
+        updatedAt: serverTimestamp()
+      });
+    } catch (err) {
+      console.error('Error deleting photo', err);
+    }
+  };
+
+  const [editingLogId, setEditingLogId] = useState<string | null>(null);
+  const [editingLogText, setEditingLogText] = useState('');
+
+  const handleEditLog = (log: ServiceLog) => {
+    setEditingLogId(log.id);
+    setEditingLogText(log.notes);
+  };
+
+  const handleSaveLogEdit = async (logId: string) => {
+    if (!activeHistoryCustomer) return;
+    try {
+      const updatedLogs = (activeHistoryCustomer.serviceLogs || []).map(log => 
+        log.id === logId ? { ...log, notes: editingLogText } : log
+      );
+      
+      await updateDoc(doc(db, 'customers', activeHistoryCustomer.id), {
+        serviceLogs: updatedLogs,
+        updatedAt: serverTimestamp()
+      });
+      setEditingLogId(null);
+    } catch (err) {
+      console.error('Error saving log edit', err);
+    }
+  };
+
+  const handleDeleteLog = async (logId: string) => {
+    if (!activeHistoryCustomer) return;
+    if (!confirm('Delete this note?')) return;
+
+    try {
+      const filteredLogs = (activeHistoryCustomer.serviceLogs || []).filter(log => log.id !== logId);
+      
+      await updateDoc(doc(db, 'customers', activeHistoryCustomer.id), {
+        serviceLogs: filteredLogs,
+        updatedAt: serverTimestamp()
+      });
+    } catch (err) {
+      console.error('Error deleting log', err);
+    }
+  };
+
+  const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const targetId = e.target.id.startsWith('photo-upload-dash-') 
+      ? e.target.id.replace('photo-upload-dash-', '') 
+      : activeHistoryCustomer?.id;
+
+    if (!file || !targetId) return;
+
+    setIsPhotoUploading(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = async () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1200; // Increased quality slightly
+          const MAX_HEIGHT = 1200;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+          
+          const customerRef = doc(db, 'customers', targetId);
+          // Fetch latest data to ensure we don't overwrite other photo updates
+          const snap = await getDoc(customerRef);
+          const currentPhotos = snap.data()?.photos || [];
+          
+          await updateDoc(customerRef, {
+            photos: [dataUrl, ...currentPhotos],
+            updatedAt: serverTimestamp()
+          });
+          setIsPhotoUploading(false);
+          if (!historyModalCustomerId) {
+             setHistoryModalCustomerId(null); // Clear temporary ID
+          }
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Error uploading photo', err);
+      setIsPhotoUploading(false);
     }
   };
 
@@ -776,68 +903,8 @@ export default function App() {
     }
   };
 
-  // Map Assistant State
-  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
-  const [assistantMessages, setAssistantMessages] = useState<{role: 'user' | 'assistant', content: string}[]>([
-    { role: 'assistant', content: "Hello! I'm your APEX Map Assistant. How can I help you optimize your service route today?" }
-  ]);
-  const [assistantInput, setAssistantInput] = useState('');
-  const [isAssistantLoading, setIsAssistantLoading] = useState(false);
-
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-
-  const handleAssistantSend = async () => {
-    if (!assistantInput.trim() || isAssistantLoading) return;
-
-    const userMessage = assistantInput.trim();
-    setAssistantMessages(prev => [...prev, { role: 'user', content: userMessage }]);
-    setAssistantInput('');
-    setIsAssistantLoading(true);
-
-    try {
-      const activeJobs = customers.filter(c => !c.completed);
-      const jobsContext = activeJobs.map(j => ({
-        name: j.name,
-        address: j.address,
-        time: format(parseISO(j.appointmentTime), 'h:mm a'),
-        windows: j.windowCount,
-        agl: j.aglCount,
-        notes: j.notes
-      }));
-
-      const systemPrompt = `You are the APEX Map Assistant, a specialized AI for a window cleaning and service management app.
-Your goal is to help the user manage their jobs, optimize their route, and answer questions about their schedule.
-Current context:
-- User: ${user?.displayName || 'Service Tech'}
-- Date: ${format(new Date(), 'EEEE, MMMM do, yyyy')}
-- Filtered Jobs: ${JSON.stringify(jobsContext)}
-
-Provide concise, helpful, and professional advice. Focus on efficiency and customer service.
-If asked about a route, suggest a logical order based on the addresses and appointment times provided.`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [
-          ...assistantMessages
-            .filter((m, idx) => !(idx === 0 && m.role === 'assistant'))
-            .map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.content }] })),
-          { role: 'user', parts: [{ text: userMessage }] }
-        ],
-        config: {
-          systemInstruction: systemPrompt,
-          temperature: 0.7,
-        }
-      });
-
-      const assistantContent = response.text || "I'm sorry, I couldn't process that request at the moment.";
-      setAssistantMessages(prev => [...prev, { role: 'assistant', content: assistantContent }]);
-    } catch (err: any) {
-      console.error("Gemini Assistant Error:", err);
-      setAssistantMessages(prev => [...prev, { role: 'assistant', content: "Connection Error: " + (err.message || String(err)) }]);
-    } finally {
-      setIsAssistantLoading(false);
-    }
-  };
+  // Gemini Live Mode
+  const [isLiveMode, setIsLiveMode] = useState(false);
 
   if (loading) {
     return (
@@ -849,24 +916,24 @@ If asked about a route, suggest a logical order based on the addresses and appoi
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-bg">
+      <div className="min-h-screen flex items-center justify-center p-4 bg-bg">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="max-w-md w-full luxury-card p-12 text-center border-accent/20"
+          className="max-w-md w-full luxury-card p-8 text-center border-accent/20"
         >
-          <div className="w-16 h-16 bg-accent rounded-full flex items-center justify-center mx-auto mb-8 shadow-[0_0_30px_rgba(197,160,89,0.3)]">
-            <Layout className="text-black w-8 h-8" />
+          <div className="w-16 h-16 bg-accent rounded-full flex items-center justify-center mx-auto mb-6 shadow-[0_0_30px_rgba(249,115,22,0.3)]">
+            <Layout className="text-white w-8 h-8" />
           </div>
-          <h1 className="text-3xl font-serif mb-4 tracking-wider text-text-primary">APEX SERVICES</h1>
-          <p className="text-text-secondary mb-10 text-sm leading-relaxed tracking-wide uppercase italic">
-            Elite service management.
+          <h1 className="text-3xl font-serif mb-2 tracking-wider text-text-primary">APEX</h1>
+          <p className="text-text-secondary mb-8 text-sm leading-relaxed tracking-wide uppercase font-bold">
+            Service Management
           </p>
           <button 
             onClick={signInWithGoogle}
-            className="btn-luxury-primary w-full shadow-[0_0_20px_rgba(197,160,89,0.2)]"
+            className="btn-luxury-primary w-full shadow-[0_0_20px_rgba(249,115,22,0.2)]"
           >
-            Authenticate with Google
+            Authenticate
           </button>
         </motion.div>
       </div>
@@ -1047,140 +1114,40 @@ If asked about a route, suggest a logical order based on the addresses and appoi
   }
 
   return (
-    <div className="min-h-screen bg-bg flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-bg border-b border-border px-8 py-5 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => setIsSidebarOpen(true)}
-            className="text-text-secondary hover:text-white transition-colors p-2 -ml-2 sm:hidden"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-          <div className="w-10 h-10 border border-accent rounded-full flex items-center justify-center">
-            <Layout className="text-accent w-5 h-5" />
+    <div className="min-h-screen bg-bg flex flex-col pb-20">
+      {/* Mobile Header */}
+      <header className="sticky top-0 z-30 bg-surface/90 backdrop-blur-md border-b border-border px-4 py-3 flex items-center justify-between shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-accent rounded-md flex items-center justify-center shadow-sm">
+            <Layout className="text-white w-4 h-4" />
           </div>
-          <h1 className="font-serif text-xl text-accent tracking-[0.2em] hidden sm:block">APEX</h1>
+          <h1 className="font-serif text-lg font-bold text-text-primary tracking-wide">APEX</h1>
         </div>
         
-        <div className="flex items-center gap-6">
-          <div className="hidden sm:flex items-center gap-6 mr-4 border-r border-border pr-6">
-            <button 
-              onClick={() => setCurrentRoute('dashboard')}
-              className={`label-caps transition-colors ${currentRoute === 'dashboard' ? 'text-accent' : 'text-text-secondary hover:text-white'}`}
-            >
-              Dashboard
-            </button>
-            <button 
-              onClick={() => setCurrentRoute('history')}
-              className={`label-caps transition-colors ${currentRoute === 'history' ? 'text-accent' : 'text-text-secondary hover:text-white'}`}
-            >
-              Job History
-            </button>
-            <button 
-              onClick={() => setCurrentRoute('directory')}
-              className={`label-caps transition-colors ${currentRoute === 'directory' ? 'text-accent' : 'text-text-secondary hover:text-white'}`}
-            >
-              Directory
-            </button>
-            <button 
-              onClick={() => setCurrentRoute('team')}
-              className={`label-caps transition-colors ${currentRoute === 'team' ? 'text-accent' : 'text-text-secondary hover:text-white'}`}
-            >
-              Team
-            </button>
+        <div className="flex items-center gap-1 sm:gap-3">
+          <div className="flex items-center">
             <button 
               onClick={() => setCurrentRoute('help')}
-              className={`label-caps transition-colors ${currentRoute === 'help' ? 'text-accent' : 'text-text-secondary hover:text-white'}`}
+              className={`p-2 rounded-md transition-colors ${currentRoute === 'help' ? 'text-accent' : 'text-text-secondary hover:bg-bg hover:text-text-primary'}`}
+              title="Training Manual"
             >
-              Training
+              <ClipboardList className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              className="p-2 text-text-secondary hover:text-accent hover:bg-bg rounded-md transition-colors"
+            >
+              {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
           </div>
-          {/* Offline/Online Indicator */}
-          <div className={`text-[10px] font-bold uppercase tracking-[0.2em] flex items-center gap-2 px-3 py-1.5 rounded-sm border ${isOnline ? 'border-emerald-900/50 bg-emerald-950/20 text-emerald-500' : 'border-red-900/50 bg-red-950/20 text-red-500'}`}>
-            <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'}`} />
-            <span className="hidden sm:inline">{isOnline ? 'Online' : 'Offline Mode'}</span>
-          </div>
-          
-          <select 
-            value={theme}
-            onChange={(e) => setTheme(e.target.value as any)}
-            className="bg-transparent border border-border text-text-secondary text-[10px] uppercase font-bold tracking-widest pl-2 pr-6 py-1.5 rounded-sm outline-none cursor-pointer hover:border-accent/40"
-          >
-            <option value="dark">Classic (Dark)</option>
-            <option value="light">Classic (Light)</option>
-            <option value="midnight">Modern Midnight</option>
-            <option value="forest">Modern Forest</option>
-          </select>
-
-          <button onClick={() => auth.signOut()} className="text-text-secondary hover:text-text-primary transition-colors">
+          <button onClick={() => auth.signOut()} className="p-2 text-text-secondary hover:text-red-500 rounded-md transition-colors">
             <LogOut className="w-5 h-5" />
           </button>
         </div>
       </header>
 
-      {/* Sidebar Overlay (Mobile) */}
-      <AnimatePresence>
-        {isSidebarOpen && (
-          <div className="fixed inset-0 z-50 flex sm:hidden">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsSidebarOpen(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ x: "-100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "-100%" }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="relative w-64 bg-surface h-full border-r border-border shadow-2xl flex flex-col"
-            >
-              <div className="p-6 border-b border-border flex items-center justify-between">
-                <h2 className="font-serif text-xl text-accent tracking-[0.2em]">APEX</h2>
-                <button onClick={() => setIsSidebarOpen(false)} className="text-text-secondary hover:text-white">
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-              <div className="p-4 flex flex-col gap-2">
-                <button 
-                  onClick={() => { setCurrentRoute('dashboard'); setIsSidebarOpen(false); }}
-                  className={`flex items-center gap-3 w-full text-left p-4 rounded-sm label-caps ${currentRoute === 'dashboard' ? 'bg-bg border border-accent/20 text-accent' : 'text-text-secondary hover:bg-bg'}`}
-                >
-                  <LayoutDashboard className="w-4 h-4" /> Dashboard
-                </button>
-                <button 
-                  onClick={() => { setCurrentRoute('history'); setIsSidebarOpen(false); }}
-                  className={`flex items-center gap-3 w-full text-left p-4 rounded-sm label-caps ${currentRoute === 'history' ? 'bg-bg border border-accent/20 text-accent' : 'text-text-secondary hover:bg-bg'}`}
-                >
-                  <History className="w-4 h-4" /> Job History
-                </button>
-                <button 
-                  onClick={() => { setCurrentRoute('directory'); setIsSidebarOpen(false); }}
-                  className={`flex items-center gap-3 w-full text-left p-4 rounded-sm label-caps ${currentRoute === 'directory' ? 'bg-bg border border-accent/20 text-accent' : 'text-text-secondary hover:bg-bg'}`}
-                >
-                  <Users className="w-4 h-4" /> Directory
-                </button>
-                <button 
-                  onClick={() => { setCurrentRoute('team'); setIsSidebarOpen(false); }}
-                  className={`flex items-center gap-3 w-full text-left p-4 rounded-sm label-caps ${currentRoute === 'team' ? 'bg-bg border border-accent/20 text-accent' : 'text-text-secondary hover:bg-bg'}`}
-                >
-                  <UserIcon className="w-4 h-4" /> Team
-                </button>
-                <button 
-                  onClick={() => { setCurrentRoute('help'); setIsSidebarOpen(false); }}
-                  className={`flex items-center gap-3 w-full text-left p-4 rounded-sm label-caps ${currentRoute === 'help' ? 'bg-bg border border-accent/20 text-accent' : 'text-text-secondary hover:bg-bg'}`}
-                >
-                  <ClipboardList className="w-4 h-4" /> Training
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      <main className={`flex-1 w-full mx-auto p-8 pb-32 ${currentRoute === 'dashboard' ? 'max-w-7xl' : 'max-w-2xl'}`}>
+      {/* Main Content Area */}
+      <main className="flex-1 w-full mx-auto p-4 w-full">
         {currentRoute === 'dashboard' && (
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
             {/* Left Column: Command Center Calendar */}
@@ -1432,6 +1399,48 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                           <Phone className="w-4 h-4" />
                         </a>
                         <button 
+                          onClick={() => {
+                            setHistoryModalCustomerId(customer.id);
+                          }}
+                          className="px-3 py-2 bg-bg border border-accent/30 text-accent hover:bg-accent hover:text-white hover:border-accent rounded-sm transition-all flex items-center justify-center shadow-sm"
+                          title="Add Quick Note"
+                        >
+                          <ClipboardList className="w-4 h-4" />
+                        </button>
+                        <div className="relative">
+                          <input 
+                            type="file" 
+                            accept="image/*" 
+                            capture="environment" 
+                            onChange={(e) => {
+                              // Temporarily set active history customer so the handler works
+                              setHistoryModalCustomerId(customer.id);
+                              handlePhotoCapture(e);
+                            }} 
+                            className="hidden" 
+                            id={`photo-upload-dash-${customer.id}`} 
+                            disabled={isPhotoUploading}
+                          />
+                          <label 
+                            htmlFor={`photo-upload-dash-${customer.id}`} 
+                            className="px-3 py-2 bg-bg border border-accent/30 text-accent hover:bg-accent hover:text-white hover:border-accent rounded-sm transition-all flex items-center justify-center cursor-pointer shadow-sm"
+                            title="Quick Photo"
+                          >
+                            {isPhotoUploading && historyModalCustomerId === customer.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Camera className="w-4 h-4" />
+                            )}
+                          </label>
+                        </div>
+                        <a 
+                          href={`sms:${customer.phone}`}
+                          className="px-3 bg-bg border border-accent/30 text-accent hover:bg-accent hover:text-white hover:border-accent uppercase tracking-widest font-bold text-[10px] rounded-sm transition-all flex items-center justify-center shadow-sm"
+                          title="Text Customer"
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                        </a>
+                        <button 
                           onClick={() => openInMaps(customer.address)}
                           className="px-3 bg-bg border border-border text-text-secondary hover:text-text-primary uppercase tracking-widest font-bold text-[10px] rounded-sm transition-all flex items-center justify-center"
                           title="Open Maps"
@@ -1652,6 +1661,13 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                           >
                             <Phone className="w-4 h-4" />
                           </a>
+                          <a 
+                            href={`sms:${customer.phone}`}
+                            className="p-1.5 bg-surface border border-border rounded-sm text-text-secondary hover:text-accent hover:border-accent/40 active:scale-95 transition-all"
+                            title="Text Customer"
+                          >
+                            <MessageSquare className="w-4 h-4" />
+                          </a>
                           <button 
                             onClick={() => openInMaps(customer.address)}
                             className="p-1.5 bg-surface border border-border rounded-sm text-text-secondary hover:text-accent hover:border-accent/40 active:scale-95 transition-all"
@@ -1799,13 +1815,22 @@ If asked about a route, suggest a logical order based on the addresses and appoi
 
                         {/* Actions */}
                       <div className="flex flex-col sm:flex-row items-center gap-2 self-stretch sm:self-center">
-                        <a 
-                          href={`tel:${customer.phone}`}
-                          className="flex items-center justify-center gap-2 px-4 py-2 h-10 bg-bg border border-accent/30 text-accent hover:bg-accent hover:text-white hover:border-accent uppercase tracking-widest font-bold text-[10px] rounded-sm transition-all shadow-sm w-full sm:w-auto"
-                          title="Call Customer"
-                        >
-                          <Phone className="w-4 h-4" /> Call
-                        </a>
+                        <div className="flex w-full sm:w-auto gap-2">
+                          <a 
+                            href={`tel:${customer.phone}`}
+                            className="flex-1 sm:flex-none items-center justify-center gap-2 px-4 py-2 h-10 bg-bg border border-accent/30 text-accent hover:bg-accent hover:text-white hover:border-accent uppercase tracking-widest font-bold text-[10px] rounded-sm transition-all shadow-sm flex"
+                            title="Call Customer"
+                          >
+                            <Phone className="w-4 h-4" /> <span className="hidden sm:inline">Call</span>
+                          </a>
+                          <a 
+                            href={`sms:${customer.phone}`}
+                            className="flex-1 sm:flex-none items-center justify-center gap-2 px-4 py-2 h-10 bg-bg border border-accent/30 text-accent hover:bg-accent hover:text-white hover:border-accent uppercase tracking-widest font-bold text-[10px] rounded-sm transition-all shadow-sm flex"
+                            title="Text Customer"
+                          >
+                            <MessageSquare className="w-4 h-4" /> <span className="hidden sm:inline">Text</span>
+                          </a>
+                        </div>
                         <div className="flex items-center justify-center gap-1.5 border border-border bg-surface p-1 rounded-sm w-full sm:w-auto h-10">
                           {deletingId === customer.id ? (
                             <div className="flex items-center gap-1 h-full">
@@ -2051,109 +2076,45 @@ If asked about a route, suggest a logical order based on the addresses and appoi
             </div>
           </div>
         )}
-      </main>
-
-      {/* Map Assistant Floating Button */}
-      <div className="fixed bottom-8 right-8 z-40 flex flex-col items-end gap-4 overflow-visible">
         <AnimatePresence>
-          {isAssistantOpen && (
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="w-80 sm:w-96 h-[500px] bg-surface rounded-sm border border-border shadow-2xl flex flex-col overflow-hidden mb-4"
-            >
-              <div className="p-4 border-b border-border bg-bg flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 bg-accent/20 rounded-sm">
-                    <Sparkles className="w-4 h-4 text-accent" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold uppercase tracking-widest text-text-primary">Map Assistant</h4>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                      <span className="text-[10px] text-emerald-500/70 font-bold uppercase tracking-tighter">AI Online</span>
-                    </div>
-                  </div>
-                </div>
-                <button onClick={() => setIsAssistantOpen(false)} className="text-text-secondary hover:text-white">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+          {isLiveMode && (
+            <GeminiLiveVoice 
+              onClose={() => setIsLiveMode(false)} 
+              systemInstruction={`You are the APEX Service Assistant.
+Context:
+- User: ${user?.displayName || 'Service Tech'}
+- Date: ${format(new Date(), 'EEEE, MMMM do, yyyy')}
+- Today's Jobs: ${JSON.stringify(customers.filter(c => !c.completed).map(j => ({
+    name: j.name, 
+    address: j.address, 
+    time: j.appointmentTime,
+    type: j.serviceType,
+    lastNotes: j.serviceLogs?.length ? j.serviceLogs[0].notes : 'None'
+  })))}
 
-              <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-[radial-gradient(circle_at_bottom_right,var(--color-bg)_0%,transparent_100%)]">
-                {assistantMessages.map((msg, idx) => (
-                  <div 
-                    key={idx} 
-                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div className={`max-w-[85%] p-3 rounded-sm text-sm leading-relaxed ${
-                      msg.role === 'user' 
-                        ? 'bg-accent text-bg font-medium' 
-                        : 'bg-bg/80 border border-border text-text-primary shadow-sm'
-                    }`}>
-                      {msg.content}
-                    </div>
-                  </div>
-                ))}
-                {isAssistantLoading && (
-                  <div className="flex justify-start">
-                    <div className="bg-bg/80 border border-border text-text-secondary p-3 rounded-sm flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin text-accent" />
-                      <span className="text-xs italic uppercase tracking-wider font-bold">Thinking...</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="p-4 border-t border-border bg-bg">
-                <form 
-                  onSubmit={(e) => { e.preventDefault(); handleAssistantSend(); }}
-                  className="flex gap-2"
-                >
-                  <input 
-                    type="text"
-                    value={assistantInput}
-                    onChange={(e) => setAssistantInput(e.target.value)}
-                    placeholder="Ask about your route..."
-                    className="flex-1 bg-surface border border-border rounded-sm px-4 py-2 text-sm text-text-primary outline-none focus:border-accent/40 placeholder:text-text-secondary/50"
-                  />
-                  <button 
-                    type="submit"
-                    disabled={isAssistantLoading || !assistantInput.trim()}
-                    className="p-2 bg-accent text-bg rounded-sm hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:translate-y-0"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
-                </form>
-              </div>
-            </motion.div>
+Core Responsibilities:
+1. Help the user optimize their route (deciding which house to go to next based on proximity or time).
+2. Answer questions about specific customers or their service history.
+3. Act as a hands-free helper while the user is working.
+4. Keep conversation brief and helpful. Don't use too many words since you are being used via voice.`}
+            />
           )}
         </AnimatePresence>
+      </main>
 
+      {/* Gemini Live Floating Button */}
+      <div className="fixed bottom-24 right-4 sm:right-8 sm:bottom-8 z-50">
         <button 
-          onClick={() => setIsAssistantOpen(!isAssistantOpen)}
-          className={`flex items-center gap-3 p-4 rounded-full shadow-2xl transition-all duration-300 group ${
-            isAssistantOpen 
-              ? 'bg-surface border border-border text-accent scale-90' 
-              : 'bg-accent text-bg hover:scale-110 active:scale-95'
-          }`}
+          onClick={() => setIsLiveMode(true)}
+          className="flex items-center gap-3 p-4 bg-accent text-bg rounded-full shadow-2xl hover:scale-105 active:scale-95 transition-all duration-300 group border border-accent/20"
         >
           <div className="relative">
-            <Sparkles className={`w-6 h-6 ${!isAssistantOpen && 'animate-pulse'}`} />
-            {!isAssistantOpen && (
-              <div className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full border-2 border-accent" />
-            )}
+            <Sparkles className="w-6 h-6 animate-pulse" />
+            <div className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full border-2 border-accent" />
           </div>
-          {!isAssistantOpen && (
-            <motion.span 
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="font-bold uppercase tracking-[0.2em] text-[10px] pr-2"
-            >
-              Map Assistant
-            </motion.span>
-          )}
+          <span className="font-bold uppercase tracking-[0.2em] text-[10px] pr-2 hidden sm:block">
+            APEX LIVE
+          </span>
         </button>
       </div>
 
@@ -2458,18 +2419,63 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                   Previous Services ({activeHistoryCustomer.serviceLogs?.length || 0})
                 </h4>
                 {activeHistoryCustomer.serviceLogs?.map(log => (
-                  <div key={log.id} className="p-5 bg-surface border border-border rounded-sm hover:-translate-y-0.5 transition-transform duration-300">
+                  <div key={log.id} className="p-5 bg-surface border border-border rounded-sm hover:-translate-y-0.5 transition-transform duration-300 group">
                     <div className="flex justify-between items-start mb-3">
-                      <span className="font-serif text-lg text-text-primary">{log.type}</span>
-                      <span className="text-xs font-bold tracking-widest text-text-secondary px-2 py-1 bg-bg rounded-sm border border-border">
-                        {format(new Date(log.date + 'T12:00:00'), 'MMM dd, yyyy')}
-                      </span>
-                    </div>
-                    {log.notes && (
-                      <div className="flex items-start gap-2 mt-2 pt-3 border-t border-border/50">
-                        <FileText className="w-3.5 h-3.5 text-accent mt-0.5 flex-shrink-0" />
-                        <p className="text-sm text-text-primary/90 leading-relaxed font-serif">{log.notes}</p>
+                      <div className="flex flex-col">
+                        <span className="font-serif text-lg text-text-primary">{log.type}</span>
+                        <span className="text-[10px] items-center gap-1.5 font-bold tracking-widest text-text-secondary mt-1 flex uppercase">
+                          <History className="w-3 h-3" />
+                          {format(new Date(log.date + 'T12:00:00'), 'MMM dd, yyyy')}
+                        </span>
                       </div>
+                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={() => handleEditLog(log)}
+                          className="p-1.5 bg-bg border border-border rounded-sm text-text-secondary hover:text-accent hover:border-accent/40 transition-all"
+                          title="Edit Note"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteLog(log.id)}
+                          className="p-1.5 bg-bg border border-border rounded-sm text-text-secondary hover:text-red-500 hover:border-red-500/40 transition-all"
+                          title="Delete Note"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {editingLogId === log.id ? (
+                      <div className="mt-2 space-y-3 bg-bg p-4 rounded-sm border border-accent/20">
+                        <textarea 
+                          value={editingLogText}
+                          onChange={(e) => setEditingLogText(e.target.value)}
+                          className="w-full bg-surface border border-border rounded-sm p-3 text-sm text-text-primary outline-none focus:border-accent transition-all resize-none"
+                          rows={3}
+                        />
+                        <div className="flex justify-end gap-2">
+                          <button 
+                            onClick={() => setEditingLogId(null)}
+                            className="px-3 py-1.5 text-[10px] uppercase font-bold tracking-widest text-text-secondary"
+                          >
+                            Cancel
+                          </button>
+                          <button 
+                            onClick={() => handleSaveLogEdit(log.id)}
+                            className="px-3 py-1.5 text-[10px] uppercase font-bold tracking-widest bg-accent text-white rounded-sm active:scale-95 transition-transform"
+                          >
+                            Save Changes
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      log.notes && (
+                        <div className="flex items-start gap-2 mt-2 pt-3 border-t border-border/50">
+                          <FileText className="w-3.5 h-3.5 text-accent mt-0.5 flex-shrink-0" />
+                          <p className="text-sm text-text-primary/90 leading-relaxed font-serif whitespace-pre-wrap">{log.notes}</p>
+                        </div>
+                      )
                     )}
                   </div>
                 ))}
@@ -2477,6 +2483,55 @@ If asked about a route, suggest a logical order based on the addresses and appoi
                   <div className="text-center py-12 bg-bg/50 rounded-sm border border-border border-dashed">
                     <History className="w-8 h-8 text-border mx-auto mb-3" />
                     <p className="label-caps text-text-secondary/70">No service history recorded yet.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Photos Section */}
+              <div className="mt-8 pt-8 border-t border-border">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="label-caps text-text-secondary">
+                    Client Photos ({activeHistoryCustomer.photos?.length || 0})
+                  </h4>
+                  <div>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      capture="environment" 
+                      onChange={handlePhotoCapture} 
+                      className="hidden" 
+                      id="photo-upload" 
+                      disabled={isPhotoUploading}
+                    />
+                    <label 
+                      htmlFor="photo-upload" 
+                      className="cursor-pointer flex items-center gap-2 text-[10px] uppercase font-bold tracking-widest bg-accent text-white px-3 py-1.5 rounded-sm hover:-translate-y-0.5 transition-transform shadow-sm"
+                    >
+                      {isPhotoUploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+                      Add Photo
+                    </label>
+                  </div>
+                </div>
+
+                {activeHistoryCustomer.photos && activeHistoryCustomer.photos.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {activeHistoryCustomer.photos.map((photo, i) => (
+                      <div key={i} className="aspect-square bg-bg rounded-sm border border-border overflow-hidden group relative">
+                        <img src={photo} alt="Client record" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                        <button 
+                          onClick={() => handleDeletePhoto(i)}
+                          className="absolute top-1 right-1 p-1 bg-black/60 text-white rounded-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                          title="Delete Photo"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 bg-bg/50 rounded-sm border border-border border-dashed">
+                    <ImageIcon className="w-6 h-6 text-border mx-auto mb-2" />
+                    <p className="text-[10px] uppercase font-bold tracking-widest text-text-secondary/50">No photos attached</p>
                   </div>
                 )}
               </div>
@@ -2627,6 +2682,54 @@ If asked about a route, suggest a logical order based on the addresses and appoi
           </div>
         )}
       </AnimatePresence>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="fixed bottom-0 w-full bg-surface/95 backdrop-blur-md border-t border-border z-40 pb-safe">
+        <div className="flex items-center justify-around">
+          <button 
+            onClick={() => setCurrentRoute('dashboard')}
+            className={`flex flex-col items-center justify-center w-full py-3 ${currentRoute === 'dashboard' ? 'text-accent' : 'text-text-secondary hover:text-text-primary'}`}
+          >
+            <LayoutDashboard className="w-5 h-5 mb-1" />
+            <span className="text-[9px] font-bold uppercase tracking-wider">Today</span>
+          </button>
+          
+          <button 
+            onClick={() => setCurrentRoute('directory')}
+            className={`flex flex-col items-center justify-center w-full py-3 ${currentRoute === 'directory' ? 'text-accent' : 'text-text-secondary hover:text-text-primary'}`}
+          >
+            <Users className="w-5 h-5 mb-1" />
+            <span className="text-[9px] font-bold uppercase tracking-wider">Clients</span>
+          </button>
+
+          {/* Center Floating Create Action */}
+          <div className="relative -top-5 flex justify-center w-full">
+            <button 
+              onClick={handleOpenAddForm}
+              className="bg-accent text-white p-3 rounded-full shadow-[0_4px_20px_rgba(249,115,22,0.4)] active:scale-95 transition-transform"
+            >
+              <Plus className="w-6 h-6" />
+            </button>
+          </div>
+
+          <button 
+            onClick={() => setCurrentRoute('history')}
+            className={`flex flex-col items-center justify-center w-full py-3 ${currentRoute === 'history' ? 'text-accent' : 'text-text-secondary hover:text-text-primary'}`}
+          >
+            <History className="w-5 h-5 mb-1" />
+            <span className="text-[9px] font-bold uppercase tracking-wider">History</span>
+          </button>
+          
+          <button 
+            onClick={() => setCurrentRoute('team')}
+            className={`flex flex-col items-center justify-center w-full py-3 ${currentRoute === 'team' || currentRoute === 'help' ? 'text-accent' : 'text-text-secondary hover:text-text-primary'}`}
+          >
+            <UserIcon className="w-5 h-5 mb-1" />
+            <span className="text-[9px] font-bold uppercase tracking-wider">Team</span>
+          </button>
+        </div>
+      </nav>
+
     </div>
   );
 }
